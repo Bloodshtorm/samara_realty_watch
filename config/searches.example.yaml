@@ -1,0 +1,36 @@
+searches:
+  - name: "yandex_samara_3rooms_main"
+    source: "yandex_realty"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "PASTE_SEARCH_URL_HERE"
+    interval_hours: 4
+    max_pages: 10
+
+  - name: "domclick_samara_3rooms_main"
+    source: "domclick"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "PASTE_SEARCH_URL_HERE"
+    interval_hours: 6
+    max_pages: 10
+
+  - name: "cian_samara_3rooms_secondary"
+    source: "cian"
+    enabled: false
+    city: "Самара"
+    rooms: 3
+    url: "PASTE_SEARCH_URL_HERE"
+    interval_hours: 6
+    max_pages: 10
+
+  - name: "avito_samara_3rooms_secondary"
+    source: "avito"
+    enabled: false
+    city: "Самара"
+    rooms: 3
+    url: "PASTE_SEARCH_URL_HERE"
+    interval_hours: 6
+    max_pages: 10

@@ -1,0 +1,46 @@
+global:
+  target_city: "Самара"
+  target_rooms: 3
+  target_area_min_m2: 60
+  target_area_max_m2: 100
+
+weights:
+  price_vs_market: 35
+  price_reduction: 15
+  freshness: 10
+  area_fit: 10
+  floor_fit: 5
+  mortgage_fit: 10
+  seller_quality: 5
+  liquidity: 10
+
+thresholds:
+  attractive_discount_percent: 8
+  strong_price_drop_percent: 3
+  strong_price_drop_rub: 250000
+  stale_listing_days: 60
+  minimum_score_for_notification: 70
+
+mortgage:
+  preferred_programs:
+    - it_mortgage
+    - family_mortgage
+  preferred_max_rate_percent: 9
+  preferred_min_down_payment_percent: 20
+
+mortgage_scenarios:
+  - name: "IT ипотека"
+    annual_rate_percent: 6.0
+    max_loan_rub: 9000000
+    down_payment_percent: 20
+    term_years: 30
+  - name: "Семейная ипотека"
+    annual_rate_percent: 6.0
+    max_loan_rub: 6000000
+    down_payment_percent: 20
+    term_years: 30
+  - name: "Рыночная ипотека"
+    annual_rate_percent: 20.0
+    max_loan_rub: null
+    down_payment_percent: 20
+    term_years: 20

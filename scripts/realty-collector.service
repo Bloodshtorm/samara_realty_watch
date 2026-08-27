@@ -1,0 +1,9 @@
+[Unit]
+Description=Samara realty collector
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/samara-realty-collector
+ExecStart=/usr/bin/docker compose run --rm collector python -m app collect

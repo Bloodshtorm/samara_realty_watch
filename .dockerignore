@@ -1,0 +1,11 @@
+.env
+.venv
+.git
+__pycache__
+.pytest_cache
+.ruff_cache
+.mypy_cache
+data/browser-profile
+data/debug/html
+data/debug/screenshots
+*.pyc

@@ -1,0 +1,1 @@
+"""Samara realty collector application."""
