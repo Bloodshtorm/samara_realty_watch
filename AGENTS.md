@@ -6,7 +6,7 @@ This repository is a Python 3.12 personal realty monitoring service for Samara a
 
 - `app/` contains CLI entrypoints, FastAPI web UI, Jinja templates, settings, logging, DB setup, SQLAlchemy models, and the collection runner.
 - `collectors/` contains source adapters. `yandex_realty.py` has the first implemented path; `domclick.py`, `cian.py`, and `avito.py` are safe adapter skeletons.
-- `services/` contains domain logic: ingestion, normalization, scoring, mortgage math, deduplication, stats, reporting, and debug artifacts.
+- `services/` contains domain logic: ingestion, normalization, scoring, analytics, mortgage math, deduplication, stats, reporting, and debug artifacts.
 - `migrations/` contains Alembic migrations.
 - `tests/` contains unit tests and `tests/fixtures/` contains saved HTML fixtures.
 - `config/` contains example YAML files. Runtime copies are `config/searches.yaml` and `config/scoring.yaml`.

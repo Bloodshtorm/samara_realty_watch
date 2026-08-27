@@ -15,6 +15,7 @@
       --accent-soft: #e6f4f1;
       --danger: #b42318;
       --ok: #067647;
+      --warn: #a15c07;
     }
     * { box-sizing: border-box; }
     body {
@@ -112,6 +113,19 @@
     .empty { text-align: center; color: var(--muted); padding: 26px; }
     .up { color: var(--danger); font-weight: 700; }
     .down { color: var(--ok); font-weight: 700; }
+    .score {
+      display: inline-block;
+      min-width: 46px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 800;
+      text-align: center;
+    }
+    .reason-list { margin: 6px 0 0; padding-left: 16px; color: var(--muted); }
+    .reason-list li { margin: 2px 0; }
+    .warning-list { margin: 6px 0 0; padding-left: 16px; color: var(--warn); }
     @media (max-width: 1100px) {
       .filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
     }
@@ -214,6 +228,7 @@
             Последнее наблюдение
           </option>
           <option value="newest" {% if filters.sort == "newest" %}selected{% endif %}>Новые</option>
+          <option value="best" {% if filters.sort == "best" %}selected{% endif %}>Лучшие</option>
         </select>
       </label>
       <div class="actions">
@@ -237,6 +252,7 @@
             <th>Этаж</th>
             <th>Адрес / заголовок</th>
             <th>Район</th>
+            <th>Рекомендация</th>
             <th>Статистика</th>
             <th>Источник</th>
             <th>Первый раз</th>
@@ -247,6 +263,7 @@
         <tbody>
           {% for item in listings %}
             {% set item_stats = stats[item.id] %}
+            {% set recommendation = recommendations[item.id] %}
             {% set delta_class = "down" if (item_stats.total_change_rub or 0) < 0 else "up" %}
             <tr>
               <td class="num">{{ item.price_rub|rub }}</td>
@@ -265,6 +282,23 @@
                 {{ item.address_normalized or item.address_raw or item.title or "-" }}
               </td>
               <td>{{ item.district or "-" }}</td>
+              <td>
+                <span class="score">{{ recommendation.score }}</span>
+                {% if recommendation.reasons %}
+                  <ul class="reason-list">
+                    {% for reason in recommendation.reasons[:2] %}
+                      <li>{{ reason }}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+                {% if recommendation.warnings %}
+                  <ul class="warning-list">
+                    {% for warning in recommendation.warnings[:1] %}
+                      <li>{{ warning }}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+              </td>
               <td class="num">
                 {{ item_stats.observations_count }} набл. · {{ item_stats.price_changes_count }} изм.<br>
                 мин {{ item_stats.min_price_rub|rub }} · макс {{ item_stats.max_price_rub|rub }}<br>
@@ -278,7 +312,7 @@
               <td><a href="/listings/{{ item.id }}">Карточка</a></td>
             </tr>
           {% else %}
-            <tr><td colspan="11" class="empty">По текущим фильтрам ничего нет.</td></tr>
+            <tr><td colspan="12" class="empty">По текущим фильтрам ничего нет.</td></tr>
           {% endfor %}
         </tbody>
       </table>
