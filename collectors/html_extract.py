@@ -128,6 +128,11 @@ def parsed_from_offer_links(source: str, html: str, page_url: str) -> list[Parse
             existing.floors_total = existing.floors_total or listing.floors_total
             existing.price_rub = existing.price_rub or listing.price_rub
             existing.price_per_m2 = existing.price_per_m2 or listing.price_per_m2
+            existing.address_raw = existing.address_raw or listing.address_raw
+            existing.address_normalized = (
+                existing.address_normalized or listing.address_normalized
+            )
+            existing.district = existing.district or listing.district
             continue
         by_id[listing.source_listing_id] = listing
     return list(by_id.values())
@@ -236,27 +241,50 @@ def _title_from_card_text(text: str) -> str | None:
 def _listing_price_from_text(text: str) -> int | None:
     prices = [
         parsed
-        for value in re.findall(r"(\d[\d\s\xa0]{2,})\s*₽", text)
+        for value in re.findall(r"(?<!\d)(\d{1,3}(?:[\s\xa0]\d{3})+|\d{5,})(?=\s*₽)", text)
         if (parsed := parse_price_rub(value)) is not None
     ]
     return max(prices) if prices else None
 
 
 def _price_per_m2_from_text(text: str) -> int | None:
-    match = re.search(r"(\d[\d\s\xa0]{2,})\s*₽\s*за\s*м²", text)
+    match = re.search(
+        r"(?<!\d)(\d{1,3}(?:[\s\xa0]\d{3})+|\d{5,})(?=\s*₽\s*за\s*м²)",
+        text,
+    )
     return parse_price_rub(match.group(1)) if match else None
 
 
 def _address_from_card_text(text: str) -> str | None:
     title = _title_from_card_text(text)
     if not title:
-        return None
-    tail = text.split(title, 1)[-1].strip()
+        floor_match = re.search(r"\d+\s*этаж\s*из\s*\d+", text, re.IGNORECASE)
+        tail = text[floor_match.end() :] if floor_match else text
+    else:
+        tail = text.split(title, 1)[-1].strip()
+    tail = re.sub(r"^·?\s*\d+\s*этаж\s*из\s*\d+\s*", "", tail, flags=re.IGNORECASE)
     price_match = re.search(r"\d[\d\s\xa0]{2,}\s*₽", tail)
     if price_match:
         tail = tail[: price_match.start()]
-    parts = re.split(r"\s{2,}| Прода[её]тся | ГОТОВАЯ | ЖК «", tail, maxsplit=1)
-    return compact_text(parts[0])
+    parts = re.split(
+        (
+            r"\s{2,}| Прода[еёе]тся | Продам | Для вас | Срочная продажа | "
+            r"Номер объекта:| Идентификатор объекта:| Добавочный номер | Арт\. | "
+            r"3\s*[- ]?\s*х комнатная | ГОТОВАЯ | ЖК\b| Информация о квартире:| Назовите номер"
+        ),
+        tail,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )
+    address = compact_text(parts[0])
+    if address:
+        return address
+    match = re.search(
+        r"((?:улица|проспект|шоссе|переулок|Самара).{3,120}?)(?:Прода[еёе]тся|ГОТОВАЯ|ЖК|\\d[\\d\\s\\xa0]{2,}\\s*₽)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return compact_text(match.group(1)) if match else None
 
 
 def page_looks_blocked(html: str) -> bool:

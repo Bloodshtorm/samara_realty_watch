@@ -91,11 +91,13 @@ def normalize_address(value: str | None) -> str | None:
         r"\bул\.?\s+": "улица ",
         r"\bпр-кт\b": "проспект",
         r"\bпросп\.?\s+": "проспект ",
-        r"\bд\.?\s*": "дом ",
+        r"\bд\.?\s*(?=\d)": "дом ",
         r"\bкв\.?\s*\d+\b": "",
     }
     for pattern, replacement in replacements.items():
         text = re.sub(pattern, replacement, text)
+    text = re.sub(r"\s+,", ",", text)
+    text = re.sub(r",\s*$", "", text)
     return compact_text(text)
 
 
