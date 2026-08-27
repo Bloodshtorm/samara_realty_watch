@@ -71,33 +71,33 @@ app = FastAPI(title="Samara Realty Watch", lifespan=lifespan)
 
 
 def parse_filters(
-    price_min: int | None = Query(default=None, ge=0),
-    price_max: int | None = Query(default=None, ge=0),
-    price_m2_max: int | None = Query(default=None, ge=0),
-    area_min: float | None = Query(default=None, ge=0),
-    area_max: float | None = Query(default=None, ge=0),
-    floor_min: int | None = Query(default=None, ge=0),
-    floor_max: int | None = Query(default=None, ge=0),
-    floors_total_max: int | None = Query(default=None, ge=0),
+    price_min: str | None = Query(default=None),
+    price_max: str | None = Query(default=None),
+    price_m2_max: str | None = Query(default=None),
+    area_min: str | None = Query(default=None),
+    area_max: str | None = Query(default=None),
+    floor_min: str | None = Query(default=None),
+    floor_max: str | None = Query(default=None),
+    floors_total_max: str | None = Query(default=None),
     district: str | None = Query(default=None),
     source: str | None = Query(default=None),
-    changed_days: int | None = Query(default=None, ge=1, le=365),
-    seen_days: int = Query(default=7, ge=1, le=365),
+    changed_days: str | None = Query(default=None),
+    seen_days: str = Query(default="7"),
     sort: str = Query(default="price", pattern="^(price|price_m2|area|last_seen|newest|best)$"),
 ) -> ListingFilters:
     return ListingFilters(
-        price_min=price_min,
-        price_max=price_max,
-        price_m2_max=price_m2_max,
-        area_min=area_min,
-        area_max=area_max,
-        floor_min=floor_min,
-        floor_max=floor_max,
-        floors_total_max=floors_total_max,
+        price_min=_optional_int("price_min", price_min, minimum=0),
+        price_max=_optional_int("price_max", price_max, minimum=0),
+        price_m2_max=_optional_int("price_m2_max", price_m2_max, minimum=0),
+        area_min=_optional_float("area_min", area_min, minimum=0),
+        area_max=_optional_float("area_max", area_max, minimum=0),
+        floor_min=_optional_int("floor_min", floor_min, minimum=0),
+        floor_max=_optional_int("floor_max", floor_max, minimum=0),
+        floors_total_max=_optional_int("floors_total_max", floors_total_max, minimum=0),
         district=district.strip() if district else None,
         source=source.strip() if source else None,
-        changed_days=changed_days,
-        seen_days=seen_days,
+        changed_days=_optional_int("changed_days", changed_days, minimum=1, maximum=365),
+        seen_days=_optional_int("seen_days", seen_days, minimum=1, maximum=365) or 7,
         sort=sort,
     )
 
@@ -110,6 +110,45 @@ async def db_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 FILTERS_DEP = Depends(parse_filters)
 SESSION_DEP = Depends(db_session)
+
+
+def _optional_int(
+    name: str,
+    value: str | None,
+    *,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int | None:
+    cleaned = value.strip() if value is not None else ""
+    if not cleaned:
+        return None
+    try:
+        parsed = int(cleaned)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{name} must be an integer") from exc
+    if minimum is not None and parsed < minimum:
+        raise HTTPException(status_code=422, detail=f"{name} must be >= {minimum}")
+    if maximum is not None and parsed > maximum:
+        raise HTTPException(status_code=422, detail=f"{name} must be <= {maximum}")
+    return parsed
+
+
+def _optional_float(
+    name: str,
+    value: str | None,
+    *,
+    minimum: float | None = None,
+) -> float | None:
+    cleaned = value.strip() if value is not None else ""
+    if not cleaned:
+        return None
+    try:
+        parsed = float(cleaned.replace(",", "."))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{name} must be a number") from exc
+    if minimum is not None and parsed < minimum:
+        raise HTTPException(status_code=422, detail=f"{name} must be >= {minimum}")
+    return parsed
 
 
 @app.get("/", response_class=HTMLResponse)
