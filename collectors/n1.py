@@ -5,11 +5,7 @@ from playwright.async_api import BrowserContext
 
 from app.models import Search
 from app.schemas import ParsedListing
-from collectors.html_extract import (
-    parsed_from_cian_state,
-    parsed_from_data_attrs,
-    parsed_from_json_ld,
-)
+from collectors.html_extract import parsed_from_json_ld, parsed_from_n1_state
 
 HEADERS = {
     "User-Agent": (
@@ -20,15 +16,12 @@ HEADERS = {
 }
 
 
-class CianCollector:
-    source_name = "cian"
+class N1Collector:
+    source_name = "n1"
 
     async def collect_search(self, search: Search, context: BrowserContext) -> list[ParsedListing]:
         async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=60) as client:
             response = await client.get(search.url)
             response.raise_for_status()
-        return (
-            parsed_from_cian_state(self.source_name, response.text, str(response.url))
-            or parsed_from_json_ld(self.source_name, response.text, str(response.url))
-            or parsed_from_data_attrs(self.source_name, response.text)
-        )
+        found = parsed_from_n1_state(self.source_name, response.text, str(response.url))
+        return found or parsed_from_json_ld(self.source_name, response.text, str(response.url))

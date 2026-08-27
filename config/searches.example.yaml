@@ -10,7 +10,7 @@ searches:
 
   - name: "domclick_samara_3rooms_main"
     source: "domclick"
-    enabled: true
+    enabled: false
     city: "Самара"
     rooms: 3
     url: "PASTE_SEARCH_URL_HERE"
@@ -22,7 +22,7 @@ searches:
     enabled: false
     city: "Самара"
     rooms: 3
-    url: "PASTE_SEARCH_URL_HERE"
+    url: "https://samara.cian.ru/kupit-3-komnatnuyu-kvartiru/"
     interval_hours: 6
     max_pages: 10
 
@@ -42,4 +42,22 @@ searches:
     rooms: 3
     url: "https://www.mirkvartir.ru/Самарская+область/Самара/Трехкомнатные/"
     interval_hours: 4
+    max_pages: 10
+
+  - name: "n1_samara_3rooms_secondary"
+    source: "n1"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "https://samara-1.n1.ru/kupit/kvartiry/rooms-trehkomnatnye/"
+    interval_hours: 6
+    max_pages: 10
+
+  - name: "etagi_samara_3rooms_secondary"
+    source: "etagi"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "https://samara.etagi.com/realty/trehkomnatnye-kvartiry/"
+    interval_hours: 6
     max_pages: 10

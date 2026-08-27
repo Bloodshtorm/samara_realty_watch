@@ -272,6 +272,171 @@ def parsed_from_mirkvartir_cards(source: str, html: str, page_url: str) -> list[
     return list(by_id.values())
 
 
+def parsed_from_cian_state(source: str, html: str, page_url: str) -> list[ParsedListing]:
+    by_id: dict[str, ParsedListing] = {}
+    for payload in _json_objects_matching(html, r'"cianId"\s*:'):
+        cian_id = payload.get("cianId") or payload.get("id")
+        price = parse_price_rub(payload.get("price") or payload.get("formattedShortPrice"))
+        area = parse_area_m2(payload.get("totalArea") or payload.get("formattedFullInfo"))
+        if not cian_id or not price or not area:
+            continue
+
+        raw_url = payload.get("fullUrl") or payload.get("url")
+        url = urljoin(page_url, str(raw_url or f"/sale/flat/{cian_id}/"))
+        canonical_url = canonicalize_url(url)
+        building = _dict_value(payload, "building")
+        geo = _dict_value(payload, "geo")
+        coordinates = _dict_value(geo, "coordinates")
+        address = _cian_address(payload)
+        title = compact_text(
+            payload.get("title")
+            or payload.get("formattedFullInfo")
+            or f"{payload.get('roomsCount') or ''}-комн. квартира, {area:g} м²"
+        )
+        description = compact_text(payload.get("description"))
+        text = " ".join(x for x in (title, description, address) if x)
+        source_id = str(cian_id)
+        by_id[source_id] = ParsedListing(
+            source=source,
+            source_listing_id=source_id,
+            url=url,
+            canonical_url=canonical_url,
+            title=title,
+            address_raw=address,
+            address_normalized=normalize_address(address),
+            district=detect_district(address, description),
+            latitude=_optional_float_value(coordinates.get("lat") or geo.get("lat")),
+            longitude=_optional_float_value(coordinates.get("lng") or geo.get("lng")),
+            property_type=str(payload.get("category") or payload.get("offerType") or "flat"),
+            seller_type=normalize_seller_type(text),
+            rooms=_optional_int_value(payload.get("roomsCount")) or parse_rooms(text),
+            area_total_m2=area,
+            area_kitchen_m2=parse_area_m2(payload.get("kitchenArea")),
+            price_rub=price,
+            price_per_m2=calc_price_per_m2(price, area),
+            floor=_optional_int_value(payload.get("floorNumber")),
+            floors_total=_optional_int_value(building.get("floorsCount")),
+            building_year=_optional_int_value(building.get("buildYear")),
+            building_type=compact_text(building.get("materialType")),
+            description=description,
+            photos_count=_optional_int_value(payload.get("photosCount")),
+            raw_payload=payload,
+            features=extract_features(text),
+        )
+    return list(by_id.values())
+
+
+def parsed_from_n1_state(source: str, html: str, page_url: str) -> list[ParsedListing]:
+    by_id: dict[str, ParsedListing] = {}
+    for payload in _json_objects_matching(html, r'"objectType"\s*:\s*"offer"'):
+        offer_id = payload.get("id") or payload.get("_id") or payload.get("trackId")
+        params = _dict_value(payload, "params")
+        price = parse_price_rub(payload.get("price") or params.get("price"))
+        area = _n1_area(params.get("total_area"))
+        if not offer_id or not price or not area:
+            continue
+
+        raw_url = payload.get("url")
+        url = urljoin(page_url, str(raw_url or f"/view/{offer_id}/"))
+        canonical_url = canonicalize_url(url)
+        address = _n1_address(payload, params)
+        description = compact_text(params.get("description") or payload.get("description"))
+        text = " ".join(x for x in (address, description) if x)
+        title = compact_text(
+            payload.get("title")
+            or f"{params.get('rooms_count') or ''}-комн. квартира, {area:g} м²"
+        )
+        location = _dict_value(payload, "location")
+        if not location:
+            location = _dict_value(params, "location")
+        source_id = str(offer_id)
+
+        by_id[source_id] = ParsedListing(
+            source=source,
+            source_listing_id=source_id,
+            url=url,
+            canonical_url=canonical_url,
+            title=title,
+            address_raw=address,
+            address_normalized=normalize_address(address),
+            district=detect_district(address, description),
+            latitude=_optional_float_value(location.get("lat")),
+            longitude=_optional_float_value(location.get("lon")),
+            property_type=str(payload.get("rubric") or "flat"),
+            seller_type="agent" if payload.get("is_agency") else normalize_seller_type(text),
+            rooms=_optional_int_value(params.get("rooms_count")),
+            area_total_m2=area,
+            area_living_m2=_n1_area(params.get("living_area")),
+            area_kitchen_m2=_n1_area(params.get("kitchen_area")),
+            price_rub=price,
+            price_per_m2=calc_price_per_m2(price, area),
+            floor=_optional_int_value(params.get("floor")),
+            floors_total=_optional_int_value(params.get("floors_count")),
+            description=description,
+            photos_count=(
+                _optional_int_value(payload.get("photos_count"))
+                or (
+                    len(payload.get("photos", []))
+                    if isinstance(payload.get("photos"), list)
+                    else None
+                )
+            ),
+            raw_payload=payload,
+            features=extract_features(text),
+        )
+    return list(by_id.values())
+
+
+def parsed_from_etagi_state(source: str, html: str, page_url: str) -> list[ParsedListing]:
+    by_id: dict[str, ParsedListing] = {}
+    for payload in _json_objects_matching(html, r'"object_id"\s*:'):
+        object_id = payload.get("object_id")
+        price = parse_price_rub(payload.get("price"))
+        area = _optional_float_value(payload.get("square"))
+        if not object_id or not price or not area:
+            continue
+
+        source_id = str(object_id)
+        url = urljoin(page_url, f"/realty/{source_id}/")
+        canonical_url = canonicalize_url(url)
+        meta = _dict_value(payload, "meta")
+        address = _etagi_address(payload, meta)
+        title = compact_text(
+            f"{payload.get('rooms') or ''}-комн. квартира, {area:g} м²"
+        )
+        description = compact_text(payload.get("description"))
+        text = " ".join(x for x in (title, address, description, str(meta.get("walls") or "")) if x)
+
+        by_id[source_id] = ParsedListing(
+            source=source,
+            source_listing_id=source_id,
+            url=url,
+            canonical_url=canonical_url,
+            title=title,
+            address_raw=address,
+            address_normalized=normalize_address(address),
+            district=detect_district(address, description),
+            latitude=_optional_float_value(payload.get("la")),
+            longitude=_optional_float_value(payload.get("lo")),
+            property_type=str(payload.get("type") or "flat"),
+            seller_type="agent",
+            rooms=_optional_int_value(payload.get("rooms")),
+            area_total_m2=area,
+            price_rub=price,
+            price_per_m2=_optional_int_value(payload.get("price_m2"))
+            or calc_price_per_m2(price, area),
+            floor=_optional_int_value(payload.get("floor")),
+            floors_total=_optional_int_value(payload.get("floors")),
+            building_year=_optional_int_value(payload.get("building_year")),
+            building_type=compact_text(meta.get("walls")),
+            description=description,
+            photos_count=_optional_int_value(_dict_value(payload, "media").get("photos")),
+            raw_payload=payload,
+            features=extract_features(text),
+        )
+    return list(by_id.values())
+
+
 def _nearest_listing_text(link) -> str:
     texts: list[str] = []
     current = link
@@ -368,6 +533,128 @@ def _mirkvartir_description(text: str) -> str | None:
     if len(parts) == 2:
         return compact_text(re.split(r"\s+(?:№|No)\s+", parts[1], maxsplit=1)[0])
     return text
+
+
+def _cian_address(payload: dict[str, Any]) -> str | None:
+    geo = payload.get("geo")
+    if not isinstance(geo, dict):
+        return None
+    address = geo.get("address")
+    if isinstance(address, list):
+        values = [item.get("title") for item in address if isinstance(item, dict)]
+        return compact_text(", ".join(str(value) for value in values if value))
+    if isinstance(address, str):
+        return compact_text(address)
+    return None
+
+
+def _dict_value(payload: dict[str, Any], key: str) -> dict[str, Any]:
+    value = payload.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _n1_address(payload: dict[str, Any], params: dict[str, Any]) -> str | None:
+    links = payload.get("geo_links")
+    if isinstance(links, dict):
+        values: list[str] = []
+        for key in ("city", "district", "street", "house_number"):
+            item = links.get(key)
+            if isinstance(item, dict) and item.get("title"):
+                values.append(str(item["title"]))
+        if values:
+            return compact_text(", ".join(values))
+
+    city = params.get("city")
+    district = params.get("district")
+    values = []
+    for item in (city, district):
+        if isinstance(item, dict) and item.get("name_ru"):
+            values.append(str(item["name_ru"]))
+    return compact_text(", ".join(values)) if values else None
+
+
+def _etagi_address(payload: dict[str, Any], meta: dict[str, Any]) -> str | None:
+    values = [
+        meta.get("city"),
+        meta.get("district"),
+        meta.get("street"),
+        payload.get("house_num") or payload.get("house_address_number"),
+    ]
+    return compact_text(", ".join(str(value) for value in values if value))
+
+
+def _n1_area(value: Any) -> float | None:
+    parsed = _optional_float_value(value)
+    if parsed is None:
+        return None
+    return parsed / 100 if parsed > 1000 else parsed
+
+
+def _json_objects_matching(text: str, pattern: str) -> list[dict[str, Any]]:
+    objects: list[dict[str, Any]] = []
+    seen: set[tuple[int, int]] = set()
+    for marker_match in re.finditer(pattern, text):
+        bounds = _json_object_bounds(text, marker_match.start())
+        if bounds is None or bounds in seen:
+            continue
+        seen.add(bounds)
+        raw = text[bounds[0] : bounds[1]]
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            objects.append(parsed)
+    return objects
+
+
+def _json_object_bounds(text: str, position: int) -> tuple[int, int] | None:
+    start = position
+    while start >= 0 and text[start] != "{":
+        start -= 1
+    while start >= 0:
+        end = _matching_json_object_end(text, start)
+        if end is not None and position < end:
+            return start, end
+        start = text.rfind("{", 0, start)
+    return None
+
+
+def _matching_json_object_end(text: str, start: int) -> int | None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
+
+
+def _optional_int_value(value: Any) -> int | None:
+    parsed = parse_price_rub(value)
+    return parsed
+
+
+def _optional_float_value(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def page_looks_blocked(html: str) -> bool:
