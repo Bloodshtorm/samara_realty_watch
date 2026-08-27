@@ -127,7 +127,7 @@ def notify_test() -> None:
 
 
 @debug_app.command("export-html")
-def export_html(source: str) -> None:
+def export_html(source: str = typer.Option(...)) -> None:
     target = Path("data/debug/html") / f"{source}.html"
     typer.echo(
         f"Положите сохраненный HTML выдачи в {target} и пришлите его для настройки селекторов."

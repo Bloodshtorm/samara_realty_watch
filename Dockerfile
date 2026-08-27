@@ -6,9 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY pyproject.toml /app/
-RUN pip install -e ".[dev]"
-
 COPY . /app
+RUN pip install -e ".[dev]"
 
 CMD ["python", "-m", "app", "collect"]
