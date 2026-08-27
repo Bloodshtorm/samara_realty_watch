@@ -6,6 +6,7 @@ __pycache__
 .ruff_cache
 .mypy_cache
 data/browser-profile
+data/debug
 data/debug/html
 data/debug/screenshots
 *.pyc

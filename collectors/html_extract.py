@@ -228,6 +228,50 @@ def parsed_from_data_attrs(source: str, html: str) -> list[ParsedListing]:
     return result
 
 
+def parsed_from_mirkvartir_cards(source: str, html: str, page_url: str) -> list[ParsedListing]:
+    soup = BeautifulSoup(html, "lxml")
+    by_id: dict[str, ParsedListing] = {}
+    for card in soup.find_all("article"):
+        text = compact_text(card.get_text(" ", strip=True)) or ""
+        id_match = re.search(r"(?:№|No)\s*([\d-]+)", text)
+        if not id_match or not re.search(r"м[²2]", text, flags=re.IGNORECASE):
+            continue
+
+        source_id = id_match.group(1).replace("-", "")
+        url = urljoin(page_url, f"/{source_id}/")
+        canonical_url = canonicalize_url(url)
+        title = _mirkvartir_title(text)
+        address = _mirkvartir_address(card, text)
+        price = _listing_price_from_text(text)
+        area = parse_area_m2(title or text)
+        floor, floors_total = parse_floor(title or text)
+        price_per_m2 = _price_per_m2_from_text(text) or calc_price_per_m2(price, area)
+        description = _mirkvartir_description(text)
+
+        by_id[source_id] = ParsedListing(
+            source=source,
+            source_listing_id=source_id,
+            url=url,
+            canonical_url=canonical_url,
+            title=title,
+            address_raw=address,
+            address_normalized=normalize_address(address),
+            district=detect_district(address, description),
+            seller_type=normalize_seller_type(text),
+            rooms=parse_rooms(title or text),
+            area_total_m2=area,
+            area_kitchen_m2=_mirkvartir_kitchen_area(text),
+            price_rub=price,
+            price_per_m2=price_per_m2,
+            floor=floor,
+            floors_total=floors_total,
+            description=description,
+            raw_payload={"card_text": text},
+            features=extract_features(text),
+        )
+    return list(by_id.values())
+
+
 def _nearest_listing_text(link) -> str:
     texts: list[str] = []
     current = link
@@ -259,7 +303,7 @@ def _listing_price_from_text(text: str) -> int | None:
 
 def _price_per_m2_from_text(text: str) -> int | None:
     match = re.search(
-        r"(?<!\d)(\d{1,3}(?:[\s\xa0]\d{3})+|\d{5,})(?=\s*₽\s*за\s*м²)",
+        r"(?<!\d)(\d{1,3}(?:[\s\xa0]\d{3})+|\d{5,})(?=\s*₽\s*(?:за\s*)?м[²2])",
         text,
     )
     return parse_price_rub(match.group(1)) if match else None
@@ -295,6 +339,35 @@ def _address_from_card_text(text: str) -> str | None:
         flags=re.IGNORECASE,
     )
     return compact_text(match.group(1)) if match else None
+
+
+def _mirkvartir_title(text: str) -> str | None:
+    match = re.search(
+        r"\d+\s*-\s*комн\.\s*квартира,\s*\d+(?:[,.]\d+)?\s*м[²2],\s*\d+\s*/\s*\d+\s*этаж",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return compact_text(match.group(0)) if match else None
+
+
+def _mirkvartir_address(card, text: str) -> str | None:
+    address_node = card.select_one("p.kpMfk")
+    if address_node is not None:
+        return compact_text(address_node.get_text(" ", strip=True).replace(" ,", ","))
+    match = re.search(r"(Самара\s*,\s*.+?)(?:\s+На карте|\s+[А-ЯЁ][а-яё]+ \w+|$)", text)
+    return compact_text(match.group(1).replace(" ,", ",")) if match else None
+
+
+def _mirkvartir_kitchen_area(text: str) -> float | None:
+    match = re.search(r"(\d+(?:[,.]\d+)?)\s*м[²2]\s*кухня", text, flags=re.IGNORECASE)
+    return parse_area_m2(match.group(1)) if match else None
+
+
+def _mirkvartir_description(text: str) -> str | None:
+    parts = re.split(r"\s+Позвонить\s+", text, maxsplit=1)
+    if len(parts) == 2:
+        return compact_text(re.split(r"\s+(?:№|No)\s+", parts[1], maxsplit=1)[0])
+    return text
 
 
 def page_looks_blocked(html: str) -> bool:

@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
 
-SourceName = Literal["yandex_realty", "domclick", "cian", "avito"]
+SourceName = Literal["yandex_realty", "domclick", "cian", "avito", "mirkvartir"]
 
 
 class SearchConfig(BaseModel):

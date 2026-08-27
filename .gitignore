@@ -9,6 +9,8 @@ __pycache__/
 config/searches.yaml
 config/scoring.yaml
 data/browser-profile/
+data/debug/*.html
+data/debug/*.py
 data/debug/html/*.html
 data/debug/screenshots/*.png
 data/reports/*.html

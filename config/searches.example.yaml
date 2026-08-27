@@ -34,3 +34,12 @@ searches:
     url: "PASTE_SEARCH_URL_HERE"
     interval_hours: 6
     max_pages: 10
+
+  - name: "mirkvartir_samara_3rooms_secondary"
+    source: "mirkvartir"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "https://www.mirkvartir.ru/Самарская+область/Самара/Трехкомнатные/"
+    interval_hours: 4
+    max_pages: 10
