@@ -20,6 +20,7 @@ This repository is a Python 3.12 personal realty monitoring service for Samara a
 - `make browser-init` opens persistent Chromium for manual login.
 - `make collect` runs one collection cycle.
 - `make web` starts the local FastAPI web UI on `http://localhost:8000`.
+- `make scheduler` starts the Docker Compose scheduler that collects every 2 hours.
 - `make stats` prints current market statistics.
 - `make report` writes a static HTML report to `data/reports/index.html`.
 - `make test` runs pytest.

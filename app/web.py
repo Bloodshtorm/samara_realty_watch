@@ -49,6 +49,20 @@ class ListingFilters:
     sort: str = "price"
 
 
+@dataclass
+class ListingStats:
+    observations_count: int = 0
+    price_changes_count: int = 0
+    first_price_rub: int | None = None
+    min_price_rub: int | None = None
+    max_price_rub: int | None = None
+    current_price_rub: int | None = None
+    total_change_rub: int | None = None
+    total_change_percent: float | None = None
+    first_observed_at: datetime | None = None
+    last_observed_at: datetime | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = Settings()
@@ -115,6 +129,7 @@ async def listings_page(
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
     total = await session.scalar(count_stmt)
     listings = (await session.execute(stmt.limit(PAGE_SIZE))).scalars().all()
+    stats = await _listing_stats(session, [item.id for item in listings])
     districts = (await session.execute(_distinct_values(Listing.district))).scalars().all()
     sources = (await session.execute(_distinct_values(Listing.source))).scalars().all()
     last_run = (
@@ -129,6 +144,7 @@ async def listings_page(
         {
             "filters": filters,
             "listings": listings,
+            "stats": stats,
             "total": total or 0,
             "limit": PAGE_SIZE,
             "districts": districts,
@@ -155,6 +171,7 @@ async def listing_detail(
             .limit(200)
         )
     ).scalars().all()
+    stats = await _listing_stats(session, [listing.id])
     price_changes = (
         await session.execute(
             select(PriceHistory)
@@ -168,6 +185,7 @@ async def listing_detail(
         "listing_detail.html",
         {
             "listing": listing,
+            "listing_stats": stats.get(listing.id, ListingStats()),
             "observations": observations,
             "price_changes": price_changes,
         },
@@ -220,3 +238,51 @@ def _filtered_listings_query(filters: ListingFilters) -> Select[tuple[Listing]]:
 
 def _distinct_values(column) -> Select[tuple[str]]:
     return select(column).where(column.is_not(None)).distinct().order_by(column)
+
+
+async def _listing_stats(
+    session: AsyncSession,
+    listing_ids: list[UUID],
+) -> dict[UUID, ListingStats]:
+    if not listing_ids:
+        return {}
+
+    stats = {listing_id: ListingStats() for listing_id in listing_ids}
+    observations = (
+        await session.execute(
+            select(ListingObservation)
+            .where(ListingObservation.listing_id.in_(listing_ids))
+            .order_by(ListingObservation.listing_id, ListingObservation.observed_at)
+        )
+    ).scalars().all()
+    for observation in observations:
+        item = stats[observation.listing_id]
+        item.observations_count += 1
+        if item.first_observed_at is None:
+            item.first_observed_at = observation.observed_at
+            item.first_price_rub = observation.price_rub
+        item.last_observed_at = observation.observed_at
+        item.current_price_rub = observation.price_rub
+        if observation.price_rub is None:
+            continue
+        if item.min_price_rub is None or observation.price_rub < item.min_price_rub:
+            item.min_price_rub = observation.price_rub
+        if item.max_price_rub is None or observation.price_rub > item.max_price_rub:
+            item.max_price_rub = observation.price_rub
+
+    change_counts = await session.execute(
+        select(PriceHistory.listing_id, func.count())
+        .where(PriceHistory.listing_id.in_(listing_ids))
+        .group_by(PriceHistory.listing_id)
+    )
+    for listing_id, count in change_counts.all():
+        stats[listing_id].price_changes_count = count
+
+    for item in stats.values():
+        if item.first_price_rub is None or item.current_price_rub is None:
+            continue
+        item.total_change_rub = item.current_price_rub - item.first_price_rub
+        if item.first_price_rub:
+            item.total_change_percent = item.total_change_rub / item.first_price_rub * 100
+
+    return stats

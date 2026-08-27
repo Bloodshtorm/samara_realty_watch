@@ -1,6 +1,6 @@
 COMPOSE=docker compose
 
-.PHONY: init up down logs browser-init collect migrate test lint format shell stats report web
+.PHONY: init up down logs browser-init collect migrate test lint format shell stats report web scheduler
 
 init:
 	cp -n .env.example .env || true
@@ -48,3 +48,6 @@ report:
 
 web:
 	$(COMPOSE) up -d web
+
+scheduler:
+	$(COMPOSE) up -d scheduler

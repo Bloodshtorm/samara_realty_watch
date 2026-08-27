@@ -29,6 +29,30 @@ services:
       - ./config:/app/config
     command: ["python", "-m", "app", "collect"]
 
+  scheduler:
+    build: .
+    env_file:
+      - .env
+    environment:
+      COLLECT_INTERVAL_SECONDS: ${COLLECT_INTERVAL_SECONDS:-7200}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data/browser-profile:/data/browser-profile
+      - ./data/debug:/app/data/debug
+      - ./data/reports:/app/data/reports
+      - ./config:/app/config
+    restart: unless-stopped
+    command:
+      - bash
+      - -lc
+      - |
+        while true; do
+          python -m app collect
+          sleep "$${COLLECT_INTERVAL_SECONDS:-7200}"
+        done
+
   web:
     build: .
     env_file:

@@ -27,6 +27,7 @@ make migrate
 make browser-init
 make collect
 make web
+make scheduler
 make report
 ```
 
@@ -77,6 +78,24 @@ docker compose run --rm collector python -m app collect --search yandex_samara_3
 
 Если сайт показывает CAPTCHA, просит логин или изменилась разметка, сборщик не пытается обходить защиту. Он сохраняет HTML и screenshot в `data/debug`, пишет ошибку в `collector_runs` и продолжает другие источники.
 
+## Автоматический сбор
+
+```bash
+make scheduler
+```
+
+Compose-сервис `scheduler` запускает `python -m app collect` каждые 2 часа. Интервал можно изменить через `.env`:
+
+```env
+COLLECT_INTERVAL_SECONDS=7200
+```
+
+Логи:
+
+```bash
+docker compose logs -f scheduler
+```
+
 ## Web UI
 
 ```bash
@@ -88,6 +107,7 @@ make web
 - список объявлений из PostgreSQL;
 - фильтры по цене, цене за м², площади, этажу, этажности дома, району и источнику;
 - фильтр по объявлениям с изменениями цены за выбранный период;
+- статистика по каждому объявлению: наблюдения, мин/макс цена, изменение с первого наблюдения;
 - карточка объявления с историей наблюдений и изменениями цены.
 
 ## HTML-отчёт

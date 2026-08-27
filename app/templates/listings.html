@@ -13,6 +13,8 @@
       --line: #d9dee7;
       --accent: #0f766e;
       --accent-soft: #e6f4f1;
+      --danger: #b42318;
+      --ok: #067647;
     }
     * { box-sizing: border-box; }
     body {
@@ -81,7 +83,7 @@
       border: 1px solid var(--line);
       border-radius: 8px;
     }
-    table { width: 100%; min-width: 1120px; border-collapse: collapse; }
+    table { width: 100%; min-width: 1320px; border-collapse: collapse; }
     th, td {
       padding: 10px 12px;
       border-bottom: 1px solid var(--line);
@@ -108,6 +110,8 @@
       background: #fff;
     }
     .empty { text-align: center; color: var(--muted); padding: 26px; }
+    .up { color: var(--danger); font-weight: 700; }
+    .down { color: var(--ok); font-weight: 700; }
     @media (max-width: 1100px) {
       .filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
     }
@@ -233,6 +237,7 @@
             <th>Этаж</th>
             <th>Адрес / заголовок</th>
             <th>Район</th>
+            <th>Статистика</th>
             <th>Источник</th>
             <th>Первый раз</th>
             <th>Последний раз</th>
@@ -241,6 +246,8 @@
         </thead>
         <tbody>
           {% for item in listings %}
+            {% set item_stats = stats[item.id] %}
+            {% set delta_class = "down" if (item_stats.total_change_rub or 0) < 0 else "up" %}
             <tr>
               <td class="num">{{ item.price_rub|rub }}</td>
               <td class="num">{{ item.price_per_m2|rub }}</td>
@@ -258,13 +265,20 @@
                 {{ item.address_normalized or item.address_raw or item.title or "-" }}
               </td>
               <td>{{ item.district or "-" }}</td>
+              <td class="num">
+                {{ item_stats.observations_count }} набл. · {{ item_stats.price_changes_count }} изм.<br>
+                мин {{ item_stats.min_price_rub|rub }} · макс {{ item_stats.max_price_rub|rub }}<br>
+                <span class="{{ delta_class }}">
+                  {{ item_stats.total_change_rub|rub }} · {{ item_stats.total_change_percent|percent }}
+                </span>
+              </td>
               <td><span class="badge">{{ item.source }}</span></td>
               <td class="num">{{ item.first_seen_at|dt }}</td>
               <td class="num">{{ item.last_seen_at|dt }}</td>
               <td><a href="/listings/{{ item.id }}">Карточка</a></td>
             </tr>
           {% else %}
-            <tr><td colspan="10" class="empty">По текущим фильтрам ничего нет.</td></tr>
+            <tr><td colspan="11" class="empty">По текущим фильтрам ничего нет.</td></tr>
           {% endfor %}
         </tbody>
       </table>

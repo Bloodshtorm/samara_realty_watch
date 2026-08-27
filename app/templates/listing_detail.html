@@ -36,7 +36,7 @@
     }
     .metrics {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 12px;
       margin-bottom: 16px;
     }
@@ -117,6 +117,35 @@
         </div>
       </div>
       <div class="metric"><div class="label">Оценка</div><div class="value">{{ listing.score or "-" }}</div></div>
+      <div class="metric">
+        <div class="label">Наблюдений</div>
+        <div class="value">{{ listing_stats.observations_count }}</div>
+      </div>
+      <div class="metric">
+        <div class="label">Изменений цены</div>
+        <div class="value">{{ listing_stats.price_changes_count }}</div>
+      </div>
+      <div class="metric">
+        <div class="label">Мин. цена</div>
+        <div class="value">{{ listing_stats.min_price_rub|rub }}</div>
+      </div>
+      <div class="metric">
+        <div class="label">Макс. цена</div>
+        <div class="value">{{ listing_stats.max_price_rub|rub }}</div>
+      </div>
+      {% set total_change_class = "down" if (listing_stats.total_change_rub or 0) < 0 else "up" %}
+      <div class="metric">
+        <div class="label">С первого наблюдения</div>
+        <div class="value {{ total_change_class }}">
+          {{ listing_stats.total_change_rub|rub }}
+        </div>
+      </div>
+      <div class="metric">
+        <div class="label">В процентах</div>
+        <div class="value {{ total_change_class }}">
+          {{ listing_stats.total_change_percent|percent }}
+        </div>
+      </div>
     </section>
 
     <section class="panel">
