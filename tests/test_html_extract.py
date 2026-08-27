@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from collectors.html_extract import parsed_from_json_ld
+from collectors.html_extract import parsed_from_json_ld, parsed_from_offer_links
 
 
 def test_yandex_fixture_json_ld() -> None:
@@ -13,3 +13,19 @@ def test_yandex_fixture_json_ld() -> None:
     assert listing.floor == 7
     assert listing.floors_total == 16
     assert listing.features["it_mortgage"] is True
+
+
+def test_offer_links_fallback() -> None:
+    html = """
+    <article>
+      <a href="/offer/1537367160041063425/">95 м² · 3-комнатная квартира · 1 этаж из 17</a>
+      <a href="/offer/1537367160041063425/">от 144 630 ₽ в месяц</a>
+    </article>
+    """
+    listings = parsed_from_offer_links("yandex_realty", html, "https://realty.yandex.ru/samara/")
+    assert len(listings) == 1
+    assert listings[0].source_listing_id == "1537367160041063425"
+    assert listings[0].area_total_m2 == 95
+    assert listings[0].rooms == 3
+    assert listings[0].floor == 1
+    assert listings[0].floors_total == 17

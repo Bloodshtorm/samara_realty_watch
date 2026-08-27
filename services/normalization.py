@@ -58,6 +58,9 @@ def parse_floor(value: str | None) -> tuple[int | None, int | None]:
     match = re.search(r"(\d+)\s*/\s*(\d+)", text)
     if match:
         return int(match.group(1)), int(match.group(2))
+    match = re.search(r"(\d+)\s*этаж\s*из\s*(\d+)", text, re.IGNORECASE)
+    if match:
+        return int(match.group(1)), int(match.group(2))
     return None, None
 
 

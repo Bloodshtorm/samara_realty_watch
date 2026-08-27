@@ -9,7 +9,12 @@ from app.models import Search
 from app.schemas import ParsedListing
 from collectors.base import CollectorBlockedError
 from collectors.debug import DebugMixin
-from collectors.html_extract import page_looks_blocked, parsed_from_data_attrs, parsed_from_json_ld
+from collectors.html_extract import (
+    page_looks_blocked,
+    parsed_from_data_attrs,
+    parsed_from_json_ld,
+    parsed_from_offer_links,
+)
 
 
 class YandexRealtyCollector(DebugMixin):
@@ -32,6 +37,8 @@ class YandexRealtyCollector(DebugMixin):
                 found = parsed_from_json_ld(self.source_name, html, page.url)
                 if not found:
                     found = parsed_from_data_attrs(self.source_name, html)
+                if not found:
+                    found = parsed_from_offer_links(self.source_name, html, page.url)
                 listings.extend(found)
                 if not found:
                     break

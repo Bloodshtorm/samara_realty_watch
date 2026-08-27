@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
@@ -69,6 +70,10 @@ def parsed_from_json_ld(source: str, html: str, page_url: str) -> list[ParsedLis
             or item.get("area")
             or " ".join(x for x in (title, description) if x)
         )
+        if "/offer/" not in canonical_url and price is None:
+            continue
+        if area is not None and area < 10:
+            area = None
         address_raw = compact_text(
             item.get("address")
             if isinstance(item.get("address"), str)
@@ -99,6 +104,75 @@ def parsed_from_json_ld(source: str, html: str, page_url: str) -> list[ParsedLis
             )
         )
     return listings
+
+
+def parsed_from_offer_links(source: str, html: str, page_url: str) -> list[ParsedListing]:
+    soup = BeautifulSoup(html, "lxml")
+    by_id: dict[str, ParsedListing] = {}
+    for card in soup.select('[data-test="OffersSerpItem"]'):
+        link = card.select_one('a[href*="/offer/"]')
+        if link is None:
+            continue
+        listing = _parsed_from_offer_link(source, link, page_url, card.get_text(" ", strip=True))
+        if listing:
+            by_id[listing.source_listing_id] = listing
+    for link in soup.select('a[href*="/offer/"]'):
+        listing = _parsed_from_offer_link(source, link, page_url, _nearest_listing_text(link))
+        if listing is None:
+            continue
+        if listing.source_listing_id in by_id:
+            existing = by_id[listing.source_listing_id]
+            existing.area_total_m2 = existing.area_total_m2 or listing.area_total_m2
+            existing.rooms = existing.rooms or listing.rooms
+            existing.floor = existing.floor or listing.floor
+            existing.floors_total = existing.floors_total or listing.floors_total
+            existing.price_rub = existing.price_rub or listing.price_rub
+            existing.price_per_m2 = existing.price_per_m2 or listing.price_per_m2
+            continue
+        by_id[listing.source_listing_id] = listing
+    return list(by_id.values())
+
+
+def _parsed_from_offer_link(
+    source: str,
+    link,
+    page_url: str,
+    text: str,
+) -> ParsedListing | None:
+        href = link.get("href")
+        if not href:
+            return None
+        url = urljoin(page_url, href)
+        canonical_url = canonicalize_url(url)
+        source_id = stable_listing_id(source, canonical_url)
+        area = parse_area_m2(text)
+        rooms = parse_rooms(text)
+        floor, floors_total = parse_floor(text)
+        price = _listing_price_from_text(text)
+        price_per_m2 = _price_per_m2_from_text(text) or calc_price_per_m2(price, area)
+        if not any((area, rooms, floor, floors_total)):
+            return None
+        address = _address_from_card_text(text)
+        return ParsedListing(
+            source=source,
+            source_listing_id=source_id,
+            url=url,
+            canonical_url=canonical_url,
+            title=_title_from_card_text(text),
+            address_raw=address,
+            address_normalized=normalize_address(address),
+            district=detect_district(address, text),
+            seller_type=normalize_seller_type(text),
+            rooms=rooms,
+            area_total_m2=area,
+            price_rub=price,
+            price_per_m2=price_per_m2,
+            floor=floor,
+            floors_total=floors_total,
+            description=text,
+            raw_payload={"href": href, "card_text": text},
+            features=extract_features(text),
+        )
 
 
 def parsed_from_data_attrs(source: str, html: str) -> list[ParsedListing]:
@@ -137,6 +211,52 @@ def parsed_from_data_attrs(source: str, html: str) -> list[ParsedListing]:
             )
         )
     return result
+
+
+def _nearest_listing_text(link) -> str:
+    texts: list[str] = []
+    current = link
+    for _ in range(5):
+        current = current.parent
+        if current is None:
+            break
+        text = compact_text(current.get_text(" ", strip=True)) or ""
+        if "/offer/" in str(current) and len(text) > 20:
+            texts.append(text)
+        if "комнат" in text and ("м²" in text or "м2" in text):
+            return text
+    return max(texts, key=len, default=compact_text(link.get_text(" ", strip=True)) or "")
+
+
+def _title_from_card_text(text: str) -> str | None:
+    match = re.search(r"\d+(?:[,.]\d+)?\s*м²\s*·\s*\d+[- ]?комнатная квартира", text)
+    return match.group(0) if match else (text[:200] if text else None)
+
+
+def _listing_price_from_text(text: str) -> int | None:
+    prices = [
+        parsed
+        for value in re.findall(r"(\d[\d\s\xa0]{2,})\s*₽", text)
+        if (parsed := parse_price_rub(value)) is not None
+    ]
+    return max(prices) if prices else None
+
+
+def _price_per_m2_from_text(text: str) -> int | None:
+    match = re.search(r"(\d[\d\s\xa0]{2,})\s*₽\s*за\s*м²", text)
+    return parse_price_rub(match.group(1)) if match else None
+
+
+def _address_from_card_text(text: str) -> str | None:
+    title = _title_from_card_text(text)
+    if not title:
+        return None
+    tail = text.split(title, 1)[-1].strip()
+    price_match = re.search(r"\d[\d\s\xa0]{2,}\s*₽", tail)
+    if price_match:
+        tail = tail[: price_match.start()]
+    parts = re.split(r"\s{2,}| Прода[её]тся | ГОТОВАЯ | ЖК «", tail, maxsplit=1)
+    return compact_text(parts[0])
 
 
 def page_looks_blocked(html: str) -> bool:
