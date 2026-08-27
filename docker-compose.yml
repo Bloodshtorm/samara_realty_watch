@@ -25,6 +25,7 @@ services:
     volumes:
       - ./data/browser-profile:/data/browser-profile
       - ./data/debug:/app/data/debug
+      - ./data/reports:/app/data/reports
       - ./config:/app/config
     command: ["python", "-m", "app", "collect"]
 

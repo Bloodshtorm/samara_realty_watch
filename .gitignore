@@ -11,4 +11,5 @@ config/scoring.yaml
 data/browser-profile/
 data/debug/html/*.html
 data/debug/screenshots/*.png
+data/reports/*.html
 *.log

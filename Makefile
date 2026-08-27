@@ -1,12 +1,12 @@
 COMPOSE=docker compose
 
-.PHONY: init up down logs browser-init collect migrate test lint format shell stats
+.PHONY: init up down logs browser-init collect migrate test lint format shell stats report
 
 init:
 	cp -n .env.example .env || true
 	cp -n config/searches.example.yaml config/searches.yaml || true
 	cp -n config/scoring.example.yaml config/scoring.yaml || true
-	mkdir -p data/browser-profile data/debug/screenshots data/debug/html
+	mkdir -p data/browser-profile data/debug/screenshots data/debug/html data/reports
 
 up:
 	$(COMPOSE) up -d postgres
@@ -42,3 +42,6 @@ shell:
 
 stats:
 	$(COMPOSE) run --rm collector python -m app stats
+
+report:
+	$(COMPOSE) run --rm collector python -m app report

@@ -12,6 +12,7 @@ from app.db import create_engine, create_session_factory
 from app.logging_config import configure_logging
 from app.models import Listing
 from app.runner import collect_once, init_db
+from services.reporting import generate_report
 from services.stats import market_price_stats
 from services.telegram import send_telegram
 
@@ -20,6 +21,7 @@ listing_app = typer.Typer()
 debug_app = typer.Typer()
 cli.add_typer(listing_app, name="listing")
 cli.add_typer(debug_app, name="debug")
+DEFAULT_REPORT_OUTPUT = Path("data/reports/index.html")
 
 
 def settings() -> Settings:
@@ -78,6 +80,23 @@ def stats(district: str | None = typer.Option(None)) -> None:
         async with session_factory() as session:
             result = await market_price_stats(session, district=district)
             typer.echo(json.dumps(result, ensure_ascii=False))
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+@cli.command()
+def report(
+    days: int = typer.Option(7, min=1, help="Период отчёта в днях."),
+    output: Path = typer.Option(DEFAULT_REPORT_OUTPUT, help="Куда сохранить HTML."),  # noqa: B008
+) -> None:
+    async def run() -> None:
+        s = settings()
+        engine = create_engine(s)
+        session_factory = create_session_factory(engine)
+        async with session_factory() as session:
+            path = await generate_report(session, output_path=output, days=days)
+            typer.echo(str(path.resolve()))
         await engine.dispose()
 
     asyncio.run(run())

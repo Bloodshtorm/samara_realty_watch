@@ -1,6 +1,6 @@
 # Samara Realty Watch
 
-Личный production-oriented MVP для автоматического сбора статистики по трёхкомнатным квартирам в Самаре. Система хранит историю наблюдений и цен, помогает находить новые объявления, снижение цены и вероятные дубли между площадками, а также отправляет Telegram-уведомления.
+Личный production-oriented MVP для автоматического сбора статистики по трёхкомнатным квартирам в Самаре. Система хранит историю наблюдений и цен, помогает находить новые объявления, снижение цены и вероятные дубли между площадками, а результаты показывает в локальном HTML-отчёте.
 
 Это личный аналитический инструмент. Он не является финансовой, инвестиционной или юридической консультацией. Ипотечные расчёты ориентировочные: реальные условия, ПСК, страховки, требования банка, объект кредита и право на льготную программу нужно проверять отдельно.
 
@@ -10,6 +10,7 @@
 - PostgreSQL 16, SQLAlchemy 2.x async, Alembic.
 - YAML-конфигурация поисков и scoring.
 - JSON-логи через structlog.
+- Локальный HTML-отчёт по собранным объявлениям и изменениям цен.
 - Без обхода CAPTCHA, антибот-защит, fingerprint/rate-limit обхода, прокси-ротации.
 - Metabase в отдельном compose profile `analytics`.
 
@@ -24,9 +25,10 @@ make up
 make migrate
 make browser-init
 make collect
+make report
 ```
 
-В `.env` не храните реальные секреты в git. Заполните `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID`, если нужны уведомления.
+В `.env` не храните реальные секреты в git. Telegram-бот не нужен для основного сценария и не используется отчётом.
 
 Рабочий каталог проекта:
 
@@ -73,6 +75,25 @@ docker compose run --rm collector python -m app collect --search yandex_samara_3
 
 Если сайт показывает CAPTCHA, просит логин или изменилась разметка, сборщик не пытается обходить защиту. Он сохраняет HTML и screenshot в `data/debug`, пишет ошибку в `collector_runs` и продолжает другие источники.
 
+## Просмотр результатов
+
+```bash
+make report
+```
+
+Команда создаёт локальный файл `data/reports/index.html`. Откройте его в браузере, чтобы посмотреть:
+
+- объявления, увиденные за последние 7 дней;
+- цену, цену за м², площадь, этаж, адрес и ссылку на источник;
+- дату первого и последнего наблюдения;
+- изменения цены, если объявление уже встречалось раньше с другой ценой.
+
+Для другого периода:
+
+```bash
+docker compose run --rm collector python -m app report --days 30
+```
+
 ## CLI
 
 ```bash
@@ -80,10 +101,10 @@ python -m app init-db
 python -m app browser-init
 python -m app collect
 python -m app stats
+python -m app report
 python -m app stats --district "октябрьский"
 python -m app listing show <uuid>
 python -m app listing duplicates
-python -m app notify-test
 python -m app debug export-html --source domclick
 ```
 
