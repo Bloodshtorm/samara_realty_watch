@@ -122,7 +122,7 @@ def normalize_seller_type(text: str | None) -> str:
 
 def extract_features(text: str | None) -> dict[str, bool | None]:
     normalized = (compact_text(text) or "").lower()
-    features = {name: None for name in FEATURE_NAMES}
+    features: dict[str, bool | None] = {name: None for name in FEATURE_NAMES}
     patterns = {
         "mortgage_available": ("ипотек",),
         "family_mortgage": ("семейн",),

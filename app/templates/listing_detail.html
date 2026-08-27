@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ listing.address_normalized or listing.title or "Объявление" }}</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --text: #19202a;
+      --muted: #657080;
+      --line: #d9dee7;
+      --accent: #0f766e;
+      --danger: #b42318;
+      --ok: #067647;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 24px 20px 40px; }
+    a { color: var(--accent); text-decoration: none; font-weight: 700; }
+    header { display: grid; gap: 8px; margin-bottom: 18px; }
+    h1 { margin: 0; font-size: 26px; line-height: 1.2; }
+    h2 { margin: 24px 0 10px; font-size: 18px; }
+    .muted { color: var(--muted); }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .value { margin-top: 4px; font-size: 20px; font-weight: 700; }
+    dl {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 8px 14px;
+      margin: 0;
+    }
+    dt { color: var(--muted); }
+    dd { margin: 0; }
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    table { width: 100%; min-width: 760px; border-collapse: collapse; }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #eef2f6;
+      color: #344054;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .empty { text-align: center; color: var(--muted); padding: 22px; }
+    .up { color: var(--danger); font-weight: 700; }
+    .down { color: var(--ok); font-weight: 700; }
+    @media (max-width: 800px) {
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      dl { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <a href="/">← Все объявления</a>
+      <h1>{{ listing.address_normalized or listing.address_raw or listing.title or "Объявление" }}</h1>
+      <div class="muted">{{ listing.source }} · {{ listing.first_seen_at|dt }} → {{ listing.last_seen_at|dt }}</div>
+    </header>
+
+    <section class="metrics">
+      <div class="metric"><div class="label">Цена</div><div class="value">{{ listing.price_rub|rub }}</div></div>
+      <div class="metric"><div class="label">₽/м²</div><div class="value">{{ listing.price_per_m2|rub }}</div></div>
+      <div class="metric"><div class="label">Площадь</div><div class="value">{{ listing.area_total_m2|m2 }}</div></div>
+      <div class="metric">
+        <div class="label">Этаж</div>
+        <div class="value">
+          {% if listing.floor and listing.floors_total %}
+            {{ listing.floor }}/{{ listing.floors_total }}
+          {% elif listing.floor %}
+            {{ listing.floor }}
+          {% else %}
+            -
+          {% endif %}
+        </div>
+      </div>
+      <div class="metric"><div class="label">Оценка</div><div class="value">{{ listing.score or "-" }}</div></div>
+    </section>
+
+    <section class="panel">
+      <dl>
+        <dt>Заголовок</dt><dd>{{ listing.title or "-" }}</dd>
+        <dt>Район</dt><dd>{{ listing.district or "-" }}</dd>
+        <dt>Тип продавца</dt><dd>{{ listing.seller_type or "-" }}</dd>
+        <dt>Ссылка</dt><dd><a href="{{ listing.url }}" target="_blank" rel="noreferrer">Открыть источник</a></dd>
+        <dt>ID источника</dt><dd>{{ listing.source_listing_id }}</dd>
+      </dl>
+    </section>
+
+    <h2>Изменения цены</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Было</th>
+            <th>Стало</th>
+            <th>Разница</th>
+            <th>%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for change in price_changes %}
+            {% set change_class = "down" if (change.change_rub or 0) < 0 else "up" %}
+            <tr>
+              <td class="num">{{ change.observed_at|dt }}</td>
+              <td class="num">{{ change.old_price_rub|rub }}</td>
+              <td class="num">{{ change.new_price_rub|rub }}</td>
+              <td class="num {{ change_class }}">{{ change.change_rub|rub }}</td>
+              <td class="num {{ change_class }}">{{ change.change_percent|percent }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty">Изменений цены пока нет.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Наблюдения</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Цена</th>
+            <th>₽/м²</th>
+            <th>Активно</th>
+            <th>Заголовок</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for observation in observations %}
+            <tr>
+              <td class="num">{{ observation.observed_at|dt }}</td>
+              <td class="num">{{ observation.price_rub|rub }}</td>
+              <td class="num">{{ observation.price_per_m2|rub }}</td>
+              <td>{{ "да" if observation.is_active else "нет" }}</td>
+              <td>{{ observation.title_snapshot or "-" }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty">Наблюдений пока нет.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

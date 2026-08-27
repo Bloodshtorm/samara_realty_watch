@@ -47,6 +47,7 @@ async def upsert_listing(
         )
         session.add(listing)
     else:
+        assert listing is not None
         old_price = listing.price_rub
         listing.last_seen_at = now
         listing.last_active_at = now

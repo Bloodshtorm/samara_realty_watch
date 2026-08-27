@@ -29,6 +29,17 @@ services:
       - ./config:/app/config
     command: ["python", "-m", "app", "collect"]
 
+  web:
+    build: .
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "app.web:app", "--host", "0.0.0.0", "--port", "8000"]
+
   metabase:
     image: metabase/metabase:latest
     profiles: ["analytics"]

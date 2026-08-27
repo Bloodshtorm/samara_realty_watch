@@ -1,4 +1,4 @@
-from services.reporting import format_rub, pct
+from app.reporting_format import format_percent, format_rub
 
 
 def test_report_money_formatting() -> None:
@@ -7,6 +7,6 @@ def test_report_money_formatting() -> None:
 
 
 def test_report_percent_formatting() -> None:
-    assert pct(None) == "-"
-    assert pct(3.456) == "+3.5%"
-    assert pct(-2.0) == "-2.0%"
+    assert format_percent(None) == "-"
+    assert format_percent(3.456) == "+3.5%"
+    assert format_percent(-2.0) == "-2.0%"

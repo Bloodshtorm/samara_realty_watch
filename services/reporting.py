@@ -10,12 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Listing, PriceHistory
-
-
-def format_rub(value: int | float | None) -> str:
-    if value is None:
-        return "-"
-    return f"{value:,.0f}".replace(",", " ") + " ₽"
+from app.reporting_format import format_dt, format_m2, format_percent, format_rub
 
 
 def format_value(value: object | None) -> str:
@@ -24,36 +19,21 @@ def format_value(value: object | None) -> str:
     return escape(str(value))
 
 
-def format_dt(value: datetime | None) -> str:
-    if value is None:
-        return "-"
-    return value.strftime("%Y-%m-%d %H:%M")
-
-
-def pct(value: float | None) -> str:
-    if value is None:
-        return "-"
-    sign = "+" if value > 0 else ""
-    return f"{sign}{value:.1f}%"
-
-
 async def generate_report(session: AsyncSession, output_path: Path, days: int = 7) -> Path:
     cutoff = datetime.now(UTC) - timedelta(days=days)
-    listings = (
-        await session.execute(
-            select(Listing)
-            .where(Listing.last_seen_at >= cutoff)
-            .order_by(Listing.price_rub.asc().nulls_last(), Listing.last_seen_at.desc())
-        )
-    ).scalars().all()
-    changes = (
-        await session.execute(
-            select(PriceHistory, Listing)
-            .join(Listing, PriceHistory.listing_id == Listing.id)
-            .where(PriceHistory.observed_at >= cutoff)
-            .order_by(PriceHistory.observed_at.desc())
-        )
-    ).all()
+    listing_rows = await session.execute(
+        select(Listing)
+        .where(Listing.last_seen_at >= cutoff)
+        .order_by(Listing.price_rub.asc().nulls_last(), Listing.last_seen_at.desc())
+    )
+    listings = list(listing_rows.scalars().all())
+    change_rows = await session.execute(
+        select(PriceHistory, Listing)
+        .join(Listing, PriceHistory.listing_id == Listing.id)
+        .where(PriceHistory.observed_at >= cutoff)
+        .order_by(PriceHistory.observed_at.desc())
+    )
+    changes = [(row[0], row[1]) for row in change_rows.all()]
 
     prices = [item.price_rub for item in listings if item.price_rub is not None]
     prices_m2 = [item.price_per_m2 for item in listings if item.price_per_m2 is not None]
@@ -268,11 +248,10 @@ def _listing_row(item: Listing) -> str:
     elif item.floor:
         floor = str(item.floor)
     address = item.address_normalized or item.address_raw or item.title or "-"
-    area = f"{float(item.area_total_m2):.1f} м²" if item.area_total_m2 is not None else "-"
     return f"""<tr>
   <td class="num">{format_rub(item.price_rub)}</td>
   <td class="num">{format_rub(item.price_per_m2)}</td>
-  <td class="num">{area}</td>
+  <td class="num">{format_m2(item.area_total_m2)}</td>
   <td class="num">{escape(floor)}</td>
   <td class="addr">{escape(address)}</td>
   <td>{format_value(item.district)}</td>
@@ -292,6 +271,6 @@ def _change_row(change: PriceHistory, listing: Listing) -> str:
   <td class="num">{format_rub(change.old_price_rub)}</td>
   <td class="num">{format_rub(change.new_price_rub)}</td>
   <td class="num {css}">{format_rub(change.change_rub)}</td>
-  <td class="num {css}">{pct(change.change_percent)}</td>
+  <td class="num {css}">{format_percent(change.change_percent)}</td>
   <td><a href="{escape(listing.url)}" target="_blank" rel="noreferrer">Открыть</a></td>
 </tr>"""

@@ -28,6 +28,10 @@ FEATURE_NAMES = (
 )
 
 
+def default_features() -> dict[str, bool | None]:
+    return {name: None for name in FEATURE_NAMES}
+
+
 class ParsedListing(BaseModel):
     source: str
     source_listing_id: str
@@ -55,6 +59,4 @@ class ParsedListing(BaseModel):
     phone_masked: str | None = None
     photos_count: int | None = None
     raw_payload: dict[str, Any] = Field(default_factory=dict)
-    features: dict[str, bool | None] = Field(
-        default_factory=lambda: {name: None for name in FEATURE_NAMES}
-    )
+    features: dict[str, bool | None] = Field(default_factory=default_features)

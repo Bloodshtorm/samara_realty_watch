@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Samara Realty Watch</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --text: #19202a;
+      --muted: #657080;
+      --line: #d9dee7;
+      --accent: #0f766e;
+      --accent-soft: #e6f4f1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { max-width: 1440px; margin: 0 auto; padding: 24px 20px 40px; }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    h1 { margin: 0; font-size: 28px; line-height: 1.15; }
+    .muted { color: var(--muted); }
+    .filters {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(130px, 1fr));
+      gap: 10px;
+      padding: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+    label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+    input, select {
+      width: 100%;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: var(--text);
+      background: #fff;
+      font: inherit;
+    }
+    .actions { display: flex; gap: 8px; align-items: end; }
+    button, .button {
+      height: 36px;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 0 12px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+    }
+    .button.secondary { background: #fff; color: var(--accent); }
+    .summary {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      color: var(--muted);
+    }
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    table { width: 100%; min-width: 1120px; border-collapse: collapse; }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #eef2f6;
+      color: #344054;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+    tr:last-child td { border-bottom: 0; }
+    a { color: var(--accent); text-decoration: none; font-weight: 700; }
+    .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .addr { max-width: 360px; }
+    .badge {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      color: var(--muted);
+      background: #fff;
+    }
+    .empty { text-align: center; color: var(--muted); padding: 26px; }
+    @media (max-width: 1100px) {
+      .filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
+    }
+    @media (max-width: 700px) {
+      header, .summary { display: block; }
+      .filters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .actions { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Samara Realty Watch</h1>
+        <div class="muted">Личный агрегатор трёхкомнатных квартир</div>
+      </div>
+      {% if last_run %}
+        <div class="muted">
+          Последний сбор: {{ last_run.started_at|dt }} · {{ last_run.status }}
+        </div>
+      {% endif %}
+    </header>
+
+    <form class="filters" method="get">
+      <label>Цена от
+        <input name="price_min" type="number" min="0" value="{{ filters.price_min or '' }}">
+      </label>
+      <label>Цена до
+        <input name="price_max" type="number" min="0" value="{{ filters.price_max or '' }}">
+      </label>
+      <label>₽/м² до
+        <input name="price_m2_max" type="number" min="0" value="{{ filters.price_m2_max or '' }}">
+      </label>
+      <label>Площадь от
+        <input name="area_min" type="number" min="0" step="0.1" value="{{ filters.area_min or '' }}">
+      </label>
+      <label>Площадь до
+        <input name="area_max" type="number" min="0" step="0.1" value="{{ filters.area_max or '' }}">
+      </label>
+      <label>Этаж от
+        <input name="floor_min" type="number" min="0" value="{{ filters.floor_min or '' }}">
+      </label>
+      <label>Этаж до
+        <input name="floor_max" type="number" min="0" value="{{ filters.floor_max or '' }}">
+      </label>
+      <label>Этажей в доме до
+        <input
+          name="floors_total_max"
+          type="number"
+          min="0"
+          value="{{ filters.floors_total_max or '' }}"
+        >
+      </label>
+      <label>Район
+        <select name="district">
+          <option value="">Любой</option>
+          {% for district in districts %}
+            <option value="{{ district }}" {% if filters.district == district %}selected{% endif %}>
+              {{ district }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Источник
+        <select name="source">
+          <option value="">Любой</option>
+          {% for source in sources %}
+            <option value="{{ source }}" {% if filters.source == source %}selected{% endif %}>
+              {{ source }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Изменения за
+        <select name="changed_days">
+          <option value="">Не важно</option>
+          {% for days in [1, 7, 14, 30, 90] %}
+            <option value="{{ days }}" {% if filters.changed_days == days %}selected{% endif %}>
+              {{ days }} дн.
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Видели за
+        <select name="seen_days">
+          {% for days in [1, 7, 14, 30, 90, 365] %}
+            <option value="{{ days }}" {% if filters.seen_days == days %}selected{% endif %}>
+              {{ days }} дн.
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Сортировка
+        <select name="sort">
+          <option value="price" {% if filters.sort == "price" %}selected{% endif %}>Цена</option>
+          <option value="price_m2" {% if filters.sort == "price_m2" %}selected{% endif %}>₽/м²</option>
+          <option value="area" {% if filters.sort == "area" %}selected{% endif %}>Площадь</option>
+          <option value="last_seen" {% if filters.sort == "last_seen" %}selected{% endif %}>
+            Последнее наблюдение
+          </option>
+          <option value="newest" {% if filters.sort == "newest" %}selected{% endif %}>Новые</option>
+        </select>
+      </label>
+      <div class="actions">
+        <button type="submit">Фильтровать</button>
+        <a class="button secondary" href="/">Сбросить</a>
+      </div>
+    </form>
+
+    <div class="summary">
+      <div>Найдено: {{ total }}{% if total > limit %}, показаны первые {{ limit }}{% endif %}</div>
+      <div>Период видимости: {{ filters.seen_days }} дн.</div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Цена</th>
+            <th>₽/м²</th>
+            <th>Площадь</th>
+            <th>Этаж</th>
+            <th>Адрес / заголовок</th>
+            <th>Район</th>
+            <th>Источник</th>
+            <th>Первый раз</th>
+            <th>Последний раз</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in listings %}
+            <tr>
+              <td class="num">{{ item.price_rub|rub }}</td>
+              <td class="num">{{ item.price_per_m2|rub }}</td>
+              <td class="num">{{ item.area_total_m2|m2 }}</td>
+              <td class="num">
+                {% if item.floor and item.floors_total %}
+                  {{ item.floor }}/{{ item.floors_total }}
+                {% elif item.floor %}
+                  {{ item.floor }}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td class="addr">
+                {{ item.address_normalized or item.address_raw or item.title or "-" }}
+              </td>
+              <td>{{ item.district or "-" }}</td>
+              <td><span class="badge">{{ item.source }}</span></td>
+              <td class="num">{{ item.first_seen_at|dt }}</td>
+              <td class="num">{{ item.last_seen_at|dt }}</td>
+              <td><a href="/listings/{{ item.id }}">Карточка</a></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="10" class="empty">По текущим фильтрам ничего нет.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

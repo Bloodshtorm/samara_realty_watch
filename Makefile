@@ -1,6 +1,6 @@
 COMPOSE=docker compose
 
-.PHONY: init up down logs browser-init collect migrate test lint format shell stats report
+.PHONY: init up down logs browser-init collect migrate test lint format shell stats report web
 
 init:
 	cp -n .env.example .env || true
@@ -45,3 +45,6 @@ stats:
 
 report:
 	$(COMPOSE) run --rm collector python -m app report
+
+web:
+	$(COMPOSE) up -d web

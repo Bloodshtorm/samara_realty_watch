@@ -24,6 +24,14 @@ from services.normalization import (
 )
 
 
+def _attr_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return str(value[0]) if value else None
+    return str(value)
+
+
 def extract_json_ld(html: str) -> list[dict[str, Any]]:
     soup = BeautifulSoup(html, "lxml")
     items: list[dict[str, Any]] = []
@@ -61,7 +69,8 @@ def parsed_from_json_ld(source: str, html: str, page_url: str) -> list[ParsedLis
         canonical_url = canonicalize_url(str(url))
         title = compact_text(_first(item.get("name")) or item.get("headline"))
         description = compact_text(item.get("description"))
-        offers = item.get("offers") if isinstance(item.get("offers"), dict) else {}
+        raw_offers = item.get("offers")
+        offers: dict[str, Any] = raw_offers if isinstance(raw_offers, dict) else {}
         price = parse_price_rub(offers.get("price") or item.get("price"))
         floor, floors_total = parse_floor(" ".join(x for x in (title, description) if x))
         area = parse_area_m2(
@@ -184,25 +193,26 @@ def parsed_from_data_attrs(source: str, html: str) -> list[ParsedListing]:
     soup = BeautifulSoup(html, "lxml")
     result: list[ParsedListing] = []
     for card in soup.select("[data-listing-id], [data-id][data-url]"):
-        listing_id = card.get("data-listing-id") or card.get("data-id")
-        url = card.get("data-url") or ""
+        listing_id = _attr_str(card.get("data-listing-id") or card.get("data-id"))
+        url = _attr_str(card.get("data-url")) or ""
         if not listing_id or not url:
             continue
         text = compact_text(card.get_text(" ", strip=True)) or ""
-        price = parse_price_rub(card.get("data-price") or text)
-        area = parse_area_m2(card.get("data-area") or text)
+        address = _attr_str(card.get("data-address"))
+        price = parse_price_rub(_attr_str(card.get("data-price")) or text)
+        area = parse_area_m2(_attr_str(card.get("data-area")) or text)
         floor, floors_total = parse_floor(text)
         canonical_url = canonicalize_url(url)
         result.append(
             ParsedListing(
                 source=source,
-                source_listing_id=str(listing_id),
+                source_listing_id=listing_id,
                 url=url,
                 canonical_url=canonical_url,
-                title=compact_text(card.get("data-title")) or text[:200],
-                address_raw=compact_text(card.get("data-address")),
-                address_normalized=normalize_address(card.get("data-address")),
-                district=detect_district(card.get("data-address"), text),
+                title=compact_text(_attr_str(card.get("data-title"))) or text[:200],
+                address_raw=compact_text(address),
+                address_normalized=normalize_address(address),
+                district=detect_district(address, text),
                 seller_type=normalize_seller_type(text),
                 rooms=parse_rooms(text),
                 area_total_m2=area,

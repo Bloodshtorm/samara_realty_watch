@@ -97,8 +97,8 @@ async def collect_once(
                     created = updated = price_changes = 0
                     async with session.begin():
                         db_search = await session.get(Search, search.id)
-                        run = await session.get(CollectorRun, run_id)
-                        assert db_search is not None and run is not None
+                        run_in_db = await session.get(CollectorRun, run_id)
+                        assert db_search is not None and run_in_db is not None
                         for listing in parsed:
                             result = await upsert_listing(session, db_search, listing)
                             created += int(result.created)
@@ -117,12 +117,12 @@ async def collect_once(
                             result.listing.score = score.score
                             result.listing.score_details = score.score_details
                             result.listing.score_reasons = score.reasons
-                        run.status = "completed"
-                        run.finished_at = datetime.now(UTC)
-                        run.listings_found = len(parsed)
-                        run.listings_created = created
-                        run.listings_updated = updated
-                        run.price_changes_found = price_changes
+                        run_in_db.status = "completed"
+                        run_in_db.finished_at = datetime.now(UTC)
+                        run_in_db.listings_found = len(parsed)
+                        run_in_db.listings_created = created
+                        run_in_db.listings_updated = updated
+                        run_in_db.price_changes_found = price_changes
                         db_search.last_status = "completed"
                         db_search.last_completed_at = datetime.now(UTC)
                     log.info(
@@ -134,15 +134,17 @@ async def collect_once(
                 except Exception as exc:
                     async with session.begin():
                         db_search = await session.get(Search, search.id)
-                        run = await session.get(CollectorRun, run_id)
-                        assert db_search is not None and run is not None
-                        run.status = "failed"
-                        run.finished_at = datetime.now(UTC)
-                        run.error_message = str(exc)
-                        run.debug_screenshot_path = getattr(
+                        run_in_db = await session.get(CollectorRun, run_id)
+                        assert db_search is not None and run_in_db is not None
+                        run_in_db.status = "failed"
+                        run_in_db.finished_at = datetime.now(UTC)
+                        run_in_db.error_message = str(exc)
+                        run_in_db.debug_screenshot_path = getattr(
                             collector, "last_debug_screenshot_path", None
                         )
-                        run.debug_html_path = getattr(collector, "last_debug_html_path", None)
+                        run_in_db.debug_html_path = getattr(
+                            collector, "last_debug_html_path", None
+                        )
                         db_search.last_status = "failed"
                         db_search.last_error = str(exc)
                         await send_telegram(settings, format_error_message(search.source, str(exc)))
