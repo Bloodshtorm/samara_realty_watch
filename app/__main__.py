@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Annotated
 
 import typer
+from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 
 from app.config import Settings, load_searches
@@ -36,11 +38,26 @@ def init_db_cmd() -> None:
 
 
 @cli.command("browser-init")
-def browser_init() -> None:
+def browser_init(
+    include_disabled: Annotated[
+        bool,
+        typer.Option("--include-disabled", help="Open disabled searches too."),
+    ] = False,
+    url: Annotated[
+        list[str] | None,
+        typer.Option("--url", help="Extra URL to open."),
+    ] = None,
+) -> None:
     s = settings()
 
     async def run() -> None:
         searches = load_searches(s.searches_config_path)
+        urls = [
+            item.url
+            for item in searches
+            if (item.enabled or include_disabled) and item.url != "PASTE_SEARCH_URL_HERE"
+        ]
+        urls.extend(url or [])
         async with async_playwright() as p:
             s.browser_profile_dir.mkdir(parents=True, exist_ok=True)
             context = await p.chromium.launch_persistent_context(
@@ -50,10 +67,12 @@ def browser_init() -> None:
                 timezone_id=s.timezone,
                 viewport={"width": 1440, "height": 1000},
             )
-            for item in searches:
-                if item.enabled and item.url != "PASTE_SEARCH_URL_HERE":
-                    page = await context.new_page()
-                    await page.goto(item.url, wait_until="domcontentloaded")
+            for target_url in urls:
+                page = await context.new_page()
+                try:
+                    await page.goto(target_url, wait_until="domcontentloaded")
+                except PlaywrightError as exc:
+                    typer.echo(f"Не удалось открыть {target_url}: {exc}")
             typer.echo("Войдите на сайты в открытом Chromium. После завершения нажмите Ctrl+C.")
             try:
                 await asyncio.Event().wait()

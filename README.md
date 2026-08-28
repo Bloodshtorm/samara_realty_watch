@@ -67,6 +67,34 @@ make browser-init
 
 На Linux-хосте для видимого Chromium из контейнера может потребоваться проброс `DISPLAY`/Wayland или запуск команды вне контейнера в той же структуре проекта.
 
+### Авторизация через noVNC
+
+Для сервера без локального монитора используйте отдельный compose profile:
+
+```bash
+docker compose stop scheduler
+NOVNC_PASSWORD='strong-password' make browser-auth
+```
+
+Откройте `http://127.0.0.1:6080/vnc.html`, введите пароль и пройдите проверки/логин на нужных площадках. Контейнер пишет cookies и local storage в `./data/browser-profile`; этот же каталог используют `collector` и `scheduler`.
+
+После авторизации остановите auth-контейнер и снова включите расписание:
+
+```bash
+docker compose stop browser-auth
+make scheduler
+```
+
+По умолчанию порт noVNC привязан только к `127.0.0.1`. Для доступа по HTTPS поднимите Caddy/nginx на сервере и проксируйте его на `127.0.0.1:6080`. Не публикуйте noVNC напрямую в интернет без пароля и HTTPS.
+
+Можно открыть дополнительные URL при старте:
+
+```bash
+AUTH_URLS='https://samara.cian.ru/kupit-3-komnatnuyu-kvartiru/ https://www.avito.ru/samara/kvartiry/prodam/3-komnatnye-ASgBAgICAUSSA8YQAkDmBxSMUsoIFQ' \
+NOVNC_PASSWORD='strong-password' \
+make browser-auth
+```
+
 ## Ручной сбор
 
 ```bash

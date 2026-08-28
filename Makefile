@@ -1,6 +1,6 @@
 COMPOSE=docker compose
 
-.PHONY: init up down logs browser-init collect migrate test lint format shell stats report web scheduler
+.PHONY: init up down logs browser-init browser-auth collect migrate test lint format shell stats report web scheduler
 
 init:
 	cp -n .env.example .env || true
@@ -19,6 +19,10 @@ logs:
 
 browser-init:
 	$(COMPOSE) run --rm collector python -m app browser-init
+
+browser-auth:
+	$(COMPOSE) build collector
+	$(COMPOSE) --profile auth up --build browser-auth
 
 collect:
 	$(COMPOSE) run --rm -e HEADLESS=$${HEADLESS:-true} collector python -m app collect

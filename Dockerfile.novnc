@@ -1,0 +1,17 @@
+FROM samara_realty_watch-collector:latest
+
+RUN for attempt in 1 2 3; do apt-get update && break || sleep 5; done \
+    && apt-get install -y --no-install-recommends \
+        fluxbox \
+        novnc \
+        websockify \
+        x11vnc \
+        xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/browser-auth-novnc.sh /usr/local/bin/browser-auth-novnc
+RUN chmod +x /usr/local/bin/browser-auth-novnc
+
+EXPOSE 6080
+
+CMD ["browser-auth-novnc"]

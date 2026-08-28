@@ -16,6 +16,7 @@ services:
       - "5432:5432"
 
   collector:
+    image: samara_realty_watch-collector:latest
     build: .
     env_file:
       - .env
@@ -52,6 +53,27 @@ services:
           python -m app collect
           sleep "$${COLLECT_INTERVAL_SECONDS:-7200}"
         done
+
+  browser-auth:
+    build:
+      context: .
+      dockerfile: Dockerfile.novnc
+    env_file:
+      - .env
+    environment:
+      NOVNC_PASSWORD: ${NOVNC_PASSWORD:-change_me}
+      AUTH_URLS: ${AUTH_URLS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${NOVNC_PORT:-6080}:6080"
+    volumes:
+      - ./data/browser-profile:/data/browser-profile
+      - ./data/debug:/app/data/debug
+      - ./data/reports:/app/data/reports
+      - ./config:/app/config
+    profiles: ["auth"]
 
   web:
     build: .
