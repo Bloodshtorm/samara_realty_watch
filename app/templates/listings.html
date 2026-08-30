@@ -326,6 +326,23 @@
       background: #d97706;
       box-shadow: 0 0 0 2px rgba(15, 23, 42, .25), 0 2px 8px rgba(15, 23, 42, .32);
     }
+    .map-cluster {
+      min-width: 34px;
+      height: 34px;
+      border: 2px solid #fff;
+      border-radius: 999px;
+      padding: 0 8px;
+      background: #dc2626;
+      color: #fff;
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, .25), 0 3px 10px rgba(15, 23, 42, .36);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1;
+      white-space: nowrap;
+    }
     .map-popup strong { display: block; margin-bottom: 4px; }
     .map-popup-actions {
       display: flex;
@@ -787,31 +804,97 @@
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
-    for (const item of points) {
-      const marker = L.marker([item.lat, item.lng], {
+    const markerLayer = L.layerGroup().addTo(map);
+    const clusterGridSize = 54;
+    const clusterMaxZoom = 16;
+
+    const popupHtml = (item) => `
+      <div class="map-popup">
+        <strong>${escapeHtml(item.price)}</strong>
+        <div>${escapeHtml(item.title)}</div>
+        <div>${escapeHtml(item.source)}${item.score ? " · " + escapeHtml(item.score) : ""}</div>
+        <div class="map-popup-actions">
+          <a href="${item.url}">Карточка</a>
+          <form method="post" action="/listings/${item.id}/state?action=${item.favorite_action}">
+            <button type="submit">${escapeHtml(item.favorite_label)}</button>
+          </form>
+          <form method="post" action="/listings/${item.id}/state?action=hide">
+            <button type="submit">Скрыть</button>
+          </form>
+        </div>
+      </div>
+    `;
+
+    const makeObjectMarker = (item) => L.marker([item.lat, item.lng], {
         icon: L.divIcon({
           className: "map-dot",
           iconSize: [16, 16],
           iconAnchor: [8, 8]
         })
-      }).addTo(map);
-      marker.bindPopup(`
-        <div class="map-popup">
-          <strong>${escapeHtml(item.price)}</strong>
-          <div>${escapeHtml(item.title)}</div>
-          <div>${escapeHtml(item.source)}${item.score ? " · " + escapeHtml(item.score) : ""}</div>
-          <div class="map-popup-actions">
-            <a href="${item.url}">Карточка</a>
-            <form method="post" action="/listings/${item.id}/state?action=${item.favorite_action}">
-              <button type="submit">${escapeHtml(item.favorite_label)}</button>
-            </form>
-            <form method="post" action="/listings/${item.id}/state?action=hide">
-              <button type="submit">Скрыть</button>
-            </form>
-          </div>
-        </div>
-      `);
-    }
+      }).bindPopup(popupHtml(item));
+
+    const makeClusterMarker = (cluster) => {
+      const marker = L.marker([cluster.lat, cluster.lng], {
+        icon: L.divIcon({
+          className: "map-cluster",
+          html: String(cluster.items.length),
+          iconSize: [34, 34],
+          iconAnchor: [17, 17]
+        })
+      });
+      marker.on("click", () => {
+        map.setView([cluster.lat, cluster.lng], Math.min(map.getZoom() + 2, 18), {
+          animate: true
+        });
+      });
+      return marker;
+    };
+
+    const renderMarkers = () => {
+      markerLayer.clearLayers();
+      const zoom = map.getZoom();
+      const visibleBounds = map.getBounds().pad(0.2);
+      const buckets = new Map();
+      for (const item of points) {
+        const latlng = L.latLng(item.lat, item.lng);
+        if (!visibleBounds.contains(latlng)) {
+          continue;
+        }
+        const projected = map.project(latlng, zoom);
+        const key = `${Math.floor(projected.x / clusterGridSize)}:${Math.floor(projected.y / clusterGridSize)}`;
+        const bucket = buckets.get(key) || { items: [], lat: 0, lng: 0 };
+        bucket.items.push(item);
+        bucket.lat += item.lat;
+        bucket.lng += item.lng;
+        buckets.set(key, bucket);
+      }
+      for (const bucket of buckets.values()) {
+        if (bucket.items.length === 1 || zoom >= clusterMaxZoom) {
+          for (const item of bucket.items) {
+            markerLayer.addLayer(makeObjectMarker(item));
+          }
+          continue;
+        }
+        markerLayer.addLayer(makeClusterMarker({
+          items: bucket.items,
+          lat: bucket.lat / bucket.items.length,
+          lng: bucket.lng / bucket.items.length
+        }));
+      }
+    };
+
+    let renderQueued = false;
+    const scheduleRenderMarkers = () => {
+      if (renderQueued) {
+        return;
+      }
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        renderMarkers();
+      });
+    };
+
     if (mapContext.radiusKm) {
       const radius = L.circle(mapCenter, {
         radius: mapContext.radiusKm * 1000,
@@ -824,7 +907,11 @@
     } else {
       map.setView(mapCenter, 11);
     }
-    const refreshMapSize = () => map.invalidateSize({ animate: false });
+    const refreshMapSize = () => {
+      map.invalidateSize({ animate: false });
+      scheduleRenderMarkers();
+    };
+    map.on("moveend zoomend", scheduleRenderMarkers);
     requestAnimationFrame(refreshMapSize);
     window.addEventListener("load", refreshMapSize);
     window.addEventListener("resize", refreshMapSize);
