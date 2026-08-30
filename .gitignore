@@ -1,4 +1,5 @@
 .env
+.env.bak*
 .venv/
 __pycache__/
 .pytest_cache/
@@ -14,4 +15,6 @@ data/debug/*.py
 data/debug/html/*.html
 data/debug/screenshots/*.png
 data/reports/*.html
+data/*.sqlite3
+data/*.db
 *.log

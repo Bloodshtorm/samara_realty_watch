@@ -103,6 +103,21 @@ class Listing(Base):
     observations: Mapped[list[ListingObservation]] = relationship(back_populates="listing")
 
 
+class ListingUserState(Base):
+    __tablename__ = "listing_user_states"
+    __table_args__ = (UniqueConstraint("listing_id", name="uq_listing_user_state_listing_id"),)
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    listing_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("listings.id", ondelete="CASCADE"))
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    hidden_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ListingObservation(Base):
     __tablename__ = "listing_observations"
 

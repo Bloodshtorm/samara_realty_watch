@@ -15,6 +15,7 @@
       --danger: #b42318;
       --ok: #067647;
       --warn: #a15c07;
+      --shadow: 0 10px 28px rgba(15, 23, 42, .08);
     }
     * { box-sizing: border-box; }
     body {
@@ -23,21 +24,40 @@
       color: var(--text);
       font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    main { max-width: 1180px; margin: 0 auto; padding: 24px 20px 40px; }
+    main {
+      width: min(1800px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
     a { color: var(--accent); text-decoration: none; font-weight: 700; }
     header { display: grid; gap: 8px; margin-bottom: 18px; }
     h1 { margin: 0; font-size: 26px; line-height: 1.2; }
     h2 { margin: 24px 0 10px; font-size: 18px; }
     .muted { color: var(--muted); }
+    .header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .button {
+      min-height: 34px;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 6px 12px;
+      background: #fff;
+      color: var(--accent);
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .button.active { background: var(--accent); color: #fff; }
+    .button.danger { border-color: var(--warn); color: var(--warn); }
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 16px;
+      box-shadow: var(--shadow);
     }
     .metrics {
       display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(150px, 1fr));
       gap: 12px;
       margin-bottom: 16px;
     }
@@ -46,6 +66,7 @@
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 14px;
+      box-shadow: var(--shadow);
     }
     .label {
       color: var(--muted);
@@ -67,6 +88,7 @@
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
+      box-shadow: var(--shadow);
     }
     table { width: 100%; min-width: 760px; border-collapse: collapse; }
     th, td {
@@ -93,6 +115,7 @@
     li { margin: 4px 0; }
     .warning { color: var(--warn); }
     @media (max-width: 800px) {
+      main { width: min(100% - 24px, 800px); padding-top: 16px; }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       dl { grid-template-columns: 1fr; }
       .columns { grid-template-columns: 1fr; }
@@ -105,6 +128,18 @@
       <a href="/">← Все объявления</a>
       <h1>{{ listing.address_normalized or listing.address_raw or listing.title or "Объявление" }}</h1>
       <div class="muted">{{ listing.source }} · {{ listing.first_seen_at|dt }} → {{ listing.last_seen_at|dt }}</div>
+      <div class="header-actions">
+        <form method="post" action="/listings/{{ listing.id }}/state?action={{ 'unfavorite' if user_state and user_state.is_favorite else 'favorite' }}">
+          <button class="button{% if user_state and user_state.is_favorite %} active{% endif %}" type="submit">
+            {{ 'В избранном' if user_state and user_state.is_favorite else 'В избранное' }}
+          </button>
+        </form>
+        <form method="post" action="/listings/{{ listing.id }}/state?action={{ 'unhide' if user_state and user_state.is_hidden else 'hide' }}">
+          <button class="button danger" type="submit">
+            {{ 'Вернуть в список' if user_state and user_state.is_hidden else 'Скрыть из списка' }}
+          </button>
+        </form>
+      </div>
     </header>
 
     <section class="metrics">

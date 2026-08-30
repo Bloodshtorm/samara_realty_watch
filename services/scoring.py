@@ -55,6 +55,8 @@ def score_listing(
             reasons.append(f"Цена снижена на {price_drop_rub:,} руб.".replace(",", " "))
 
     if first_seen_at:
+        if first_seen_at.tzinfo is None:
+            first_seen_at = first_seen_at.replace(tzinfo=UTC)
         age_hours = (datetime.now(UTC) - first_seen_at).total_seconds() / 3600
         if age_hours <= 24:
             points = weights.get("freshness", 10)

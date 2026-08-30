@@ -228,6 +228,56 @@ def parsed_from_data_attrs(source: str, html: str) -> list[ParsedListing]:
     return result
 
 
+def parsed_from_avito_cards(source: str, html: str, page_url: str) -> list[ParsedListing]:
+    soup = BeautifulSoup(html, "lxml")
+    by_id: dict[str, ParsedListing] = {}
+    for card in soup.select('[data-marker="item"]'):
+        title_link = card.select_one('[data-marker="item-title"][href]')
+        if title_link is None:
+            continue
+        href = title_link.get("href")
+        if not href:
+            continue
+        href = str(href)
+        title = compact_text(title_link.get_text(" ", strip=True))
+        rooms = parse_rooms(title or "")
+        area = parse_area_m2(title or "")
+        floor, floors_total = parse_floor(title or "")
+        if area is None or rooms is None:
+            continue
+
+        url = urljoin(page_url, href)
+        canonical_url = canonicalize_url(url)
+        source_id = _avito_id_from_url(canonical_url) or stable_listing_id(source, canonical_url)
+        text = compact_text(card.get_text(" ", strip=True)) or ""
+        address = _avito_address(card, text)
+        price = _listing_price_from_text(text)
+        price_per_m2 = _price_per_m2_from_text(text) or calc_price_per_m2(price, area)
+        description = _avito_description(text)
+
+        by_id[source_id] = ParsedListing(
+            source=source,
+            source_listing_id=source_id,
+            url=url,
+            canonical_url=canonical_url,
+            title=title,
+            address_raw=address,
+            address_normalized=normalize_address(address),
+            district=detect_district(address, description),
+            seller_type=normalize_seller_type(text),
+            rooms=rooms,
+            area_total_m2=area,
+            price_rub=price,
+            price_per_m2=price_per_m2,
+            floor=floor,
+            floors_total=floors_total,
+            description=description,
+            raw_payload={"href": href, "card_text": text},
+            features=extract_features(text),
+        )
+    return list(by_id.values())
+
+
 def parsed_from_mirkvartir_cards(source: str, html: str, page_url: str) -> list[ParsedListing]:
     soup = BeautifulSoup(html, "lxml")
     by_id: dict[str, ParsedListing] = {}
@@ -270,6 +320,41 @@ def parsed_from_mirkvartir_cards(source: str, html: str, page_url: str) -> list[
             features=extract_features(text),
         )
     return list(by_id.values())
+
+
+def _avito_id_from_url(url: str) -> str | None:
+    match = re.search(r"_(\d+)(?:\?|$)", url)
+    return match.group(1) if match else None
+
+
+def _avito_address(card, text: str) -> str | None:
+    values: list[str] = []
+    for marker in ("street_link", "house_link"):
+        node = card.select_one(f'[data-marker="{marker}"]')
+        if node is not None:
+            value = compact_text(node.get_text(" ", strip=True))
+            if value:
+                values.append(value)
+    district_match = re.search(r"\bр-н\s+[А-Яа-яЁё-]+", text)
+    if district_match:
+        values.append(district_match.group(0))
+    if values:
+        return compact_text(", ".join(values).replace(" ,", ","))
+    title = _title_from_card_text(text)
+    tail = text.split(title, 1)[-1] if title and title in text else text
+    price_match = re.search(r"\d[\d\s\xa0]{2,}\s*₽", tail)
+    if price_match:
+        tail = tail[price_match.end() :]
+    return _address_from_card_text(tail)
+
+
+def _avito_description(text: str) -> str | None:
+    parts = re.split(
+        r"(?:Показать телефон|Написать|Позвонить|На Авито с|Разместить объявление)",
+        text,
+        maxsplit=1,
+    )
+    return compact_text(parts[0])
 
 
 def parsed_from_cian_state(source: str, html: str, page_url: str) -> list[ParsedListing]:

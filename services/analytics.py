@@ -199,7 +199,10 @@ def recommend_listing(
             warnings.append("Цена выросла с первого наблюдения")
 
     if listing.first_seen_at:
-        age_days = (datetime.now(UTC) - listing.first_seen_at).days
+        first_seen_at = listing.first_seen_at
+        if first_seen_at.tzinfo is None:
+            first_seen_at = first_seen_at.replace(tzinfo=UTC)
+        age_days = (datetime.now(UTC) - first_seen_at).days
         if age_days <= 3:
             score += 5
             reasons.append("Новое объявление")

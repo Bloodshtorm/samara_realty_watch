@@ -43,6 +43,10 @@ def browser_init(
         bool,
         typer.Option("--include-disabled", help="Open disabled searches too."),
     ] = False,
+    skip_searches: Annotated[
+        bool,
+        typer.Option("--skip-searches", help="Open only URLs passed via --url."),
+    ] = False,
     url: Annotated[
         list[str] | None,
         typer.Option("--url", help="Extra URL to open."),
@@ -55,7 +59,9 @@ def browser_init(
         urls = [
             item.url
             for item in searches
-            if (item.enabled or include_disabled) and item.url != "PASTE_SEARCH_URL_HERE"
+            if not skip_searches
+            and (item.enabled or include_disabled)
+            and item.url != "PASTE_SEARCH_URL_HERE"
         ]
         urls.extend(url or [])
         async with async_playwright() as p:
@@ -66,6 +72,7 @@ def browser_init(
                 locale="ru-RU",
                 timezone_id=s.timezone,
                 viewport={"width": 1440, "height": 1000},
+                args=["--ozone-platform=x11"],
             )
             for target_url in urls:
                 page = await context.new_page()

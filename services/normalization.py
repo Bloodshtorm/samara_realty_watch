@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
+from collections.abc import Iterable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.schemas import FEATURE_NAMES
@@ -70,7 +71,9 @@ def parse_rooms(value: str | int | None) -> int | None:
     if not value:
         return None
     text = compact_text(str(value)) or ""
-    match = re.search(r"(\d+)\s*(?:-?\s*комн|комнат)", text, re.IGNORECASE)
+    if re.search(r"\bстуди[яиюе]\b", text, re.IGNORECASE):
+        return 0
+    match = re.search(r"(\d+)\s*(?:-?\s*(?:комн|к\.)|комнат)", text, re.IGNORECASE)
     return int(match.group(1)) if match else None
 
 
@@ -78,6 +81,80 @@ def calc_price_per_m2(price_rub: int | None, area_total_m2: float | None) -> int
     if not price_rub or not area_total_m2:
         return None
     return round(price_rub / area_total_m2)
+
+
+def is_fractional_share_listing(*texts: str | None) -> bool:
+    normalized = " ".join(_normalized_parts(texts))
+    if not normalized:
+        return False
+    if re.search(r"\bне\s+дол[яиюе]\b", normalized):
+        return False
+    patterns = (
+        r"\bдол[яиюе]\b",
+        r"\b\d+\s*/\s*\d+\s+(?:квартир[аыеу]?|комнат[ауы]?)\b",
+        r"\b(?:прода(?:м|ется)|продается|купить)\s+дол",
+    )
+    return any(re.search(pattern, normalized) for pattern in patterns)
+
+
+def _normalized_parts(texts: Iterable[str | None]) -> list[str]:
+    return [text.lower() for text in (compact_text(value) for value in texts) if text]
+
+
+def is_outside_samara_city_listing(*texts: str | None) -> bool:
+    normalized = " ".join(_normalized_parts(texts))
+    if not normalized:
+        return False
+    blocked_markers = (
+        "новокуйбышевск",
+        "петра дубрава",
+        "стройкерамика",
+        "придорожный",
+        "кошелев-парк",
+        "поселок",
+        "посёлок",
+        "пгт",
+        "село",
+        "деревня",
+    )
+    return any(marker in normalized for marker in blocked_markers)
+
+
+def is_low_rise_building(floors_total: int | None) -> bool:
+    return floors_total is not None and floors_total <= 5
+
+
+def is_wrong_room_count(
+    rooms: int | None,
+    expected_rooms: int,
+    *texts: str | None,
+) -> bool:
+    if rooms is not None:
+        return rooms != expected_rooms
+    text_rooms = parse_rooms(" ".join(_normalized_parts(texts)))
+    return text_rooms != expected_rooms
+
+
+def should_exclude_listing(
+    *,
+    title: str | None,
+    description: str | None,
+    property_type: str | None,
+    rooms: int | None,
+    address_raw: str | None,
+    address_normalized: str | None,
+    floors_total: int | None,
+    expected_rooms: int | None = None,
+) -> bool:
+    return (
+        is_fractional_share_listing(title, description, property_type)
+        or is_outside_samara_city_listing(address_raw, address_normalized, title, description)
+        or is_low_rise_building(floors_total)
+        or (
+            expected_rooms is not None
+            and is_wrong_room_count(rooms, expected_rooms, title, description)
+        )
+    )
 
 
 def normalize_address(value: str | None) -> str | None:

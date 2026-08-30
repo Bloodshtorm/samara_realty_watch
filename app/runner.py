@@ -14,6 +14,7 @@ from app.models import Base, CollectorRun, Search
 from collectors import COLLECTORS
 from collectors.debug import setup_debug
 from services.ingestion import upsert_listing
+from services.normalization import should_exclude_listing
 from services.scoring import MarketStats, score_listing
 from services.telegram import format_error_message, send_telegram
 
@@ -94,6 +95,20 @@ async def collect_once(
                         html_dir=settings.html_dumps_dir,
                     )
                     parsed = await collector.collect_search(search, context)
+                    parsed = [
+                        listing
+                        for listing in parsed
+                        if not should_exclude_listing(
+                            title=listing.title,
+                            description=listing.description,
+                            property_type=listing.property_type,
+                            rooms=listing.rooms,
+                            address_raw=listing.address_raw,
+                            address_normalized=listing.address_normalized,
+                            floors_total=listing.floors_total,
+                            expected_rooms=search.rooms,
+                        )
+                    ]
                     created = updated = price_changes = 0
                     async with session.begin():
                         db_search = await session.get(Search, search.id)
@@ -124,6 +139,7 @@ async def collect_once(
                         run_in_db.listings_updated = updated
                         run_in_db.price_changes_found = price_changes
                         db_search.last_status = "completed"
+                        db_search.last_error = None
                         db_search.last_completed_at = datetime.now(UTC)
                     log.info(
                         "collect_completed",

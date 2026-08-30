@@ -6,16 +6,18 @@
   <title>Samara Realty Watch</title>
   <style>
     :root {
-      --bg: #f4f6f8;
+      --bg: #eef2f6;
       --panel: #ffffff;
       --text: #19202a;
       --muted: #657080;
       --line: #d9dee7;
+      --line-strong: #c5ccd8;
       --accent: #0f766e;
       --accent-soft: #e6f4f1;
       --danger: #b42318;
       --ok: #067647;
       --warn: #a15c07;
+      --shadow: 0 10px 28px rgba(15, 23, 42, .08);
     }
     * { box-sizing: border-box; }
     body {
@@ -24,30 +26,74 @@
       color: var(--text);
       font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    main { max-width: 1440px; margin: 0 auto; padding: 24px 20px 40px; }
+    main {
+      width: min(2400px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
     header {
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
       gap: 16px;
-      margin-bottom: 18px;
+      margin-bottom: 14px;
     }
     h1 { margin: 0; font-size: 28px; line-height: 1.15; }
     .muted { color: var(--muted); }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--ok);
+      box-shadow: 0 0 0 4px rgba(6, 118, 71, .12);
+    }
+    .dashboard {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(170px, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .stat-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+    }
+    .stat-label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .stat-value {
+      margin-top: 3px;
+      font-size: 22px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
     .filters {
       display: grid;
-      grid-template-columns: repeat(6, minmax(130px, 1fr));
+      grid-template-columns: repeat(8, minmax(130px, 1fr));
       gap: 10px;
       padding: 14px;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
       margin-bottom: 16px;
+      box-shadow: var(--shadow);
     }
     label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
     input, select {
       width: 100%;
-      height: 36px;
+      height: 34px;
       border: 1px solid var(--line);
       border-radius: 6px;
       padding: 6px 8px;
@@ -57,7 +103,7 @@
     }
     .actions { display: flex; gap: 8px; align-items: end; }
     button, .button {
-      height: 36px;
+      height: 34px;
       border: 1px solid var(--accent);
       border-radius: 6px;
       padding: 0 12px;
@@ -69,6 +115,7 @@
       text-decoration: none;
       display: inline-flex;
       align-items: center;
+      justify-content: center;
     }
     .button.secondary { background: #fff; color: var(--accent); }
     .summary {
@@ -78,30 +125,121 @@
       margin-bottom: 10px;
       color: var(--muted);
     }
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 10px;
+    }
+    .views {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .view-tab {
+      min-height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 5px 9px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .view-tab.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .th-sort {
+      color: #344054;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-weight: 800;
+    }
+    .th-sort.active { color: var(--accent); }
     .table-wrap {
       overflow-x: auto;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
+      position: relative;
+      box-shadow: var(--shadow);
     }
-    table { width: 100%; min-width: 1320px; border-collapse: collapse; }
+    table {
+      width: 100%;
+      min-width: 1600px;
+      border-collapse: separate;
+      border-spacing: 0;
+      table-layout: fixed;
+    }
     th, td {
-      padding: 10px 12px;
+      padding: 9px 10px;
       border-bottom: 1px solid var(--line);
       vertical-align: top;
       text-align: left;
     }
     th {
-      background: #eef2f6;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #e8edf4;
       color: #344054;
       font-size: 12px;
       text-transform: uppercase;
       letter-spacing: .03em;
+      border-bottom-color: var(--line-strong);
     }
+    tbody tr:nth-child(even) td { background: #fbfcfe; }
+    tbody tr:hover td { background: #f5faf9; }
     tr:last-child td { border-bottom: 0; }
     a { color: var(--accent); text-decoration: none; font-weight: 700; }
+    .row-link { color: var(--text); font-weight: 600; }
     .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .addr { max-width: 360px; }
+    .addr { width: 300px; }
+    .recommendation-col { width: 220px; }
+    .stats-col { width: 230px; }
+    .source-col { width: 120px; }
+    .date-col { width: 132px; }
+    .action-col {
+      width: 180px;
+      min-width: 180px;
+      background: var(--panel);
+    }
+    th.action-col {
+      background: #eef2f6;
+    }
+    .button.small {
+      height: 30px;
+      padding: 0 10px;
+      white-space: nowrap;
+    }
+    .row-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .row-actions form { margin: 0; }
+    .icon-button {
+      width: 30px;
+      height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0;
+      background: #fff;
+      color: var(--muted);
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .icon-button.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .icon-button.danger { color: var(--warn); }
     .badge {
       display: inline-block;
       border: 1px solid var(--line);
@@ -126,13 +264,21 @@
     .reason-list { margin: 6px 0 0; padding-left: 16px; color: var(--muted); }
     .reason-list li { margin: 2px 0; }
     .warning-list { margin: 6px 0 0; padding-left: 16px; color: var(--warn); }
+    .nowrap { white-space: nowrap; }
     @media (max-width: 1100px) {
+      main { width: min(100% - 32px, 1100px); }
+      .dashboard { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
       .filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
     }
     @media (max-width: 700px) {
-      header, .summary { display: block; }
+      main { width: min(100% - 24px, 700px); padding-top: 16px; }
+      header, .summary, .toolbar { display: block; }
+      .status { margin-top: 10px; white-space: normal; }
+      .dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .filters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
       .actions { grid-column: 1 / -1; }
+      .actions button, .actions .button { flex: 1; }
+      .views { margin-top: 8px; }
     }
   </style>
 </head>
@@ -144,13 +290,35 @@
         <div class="muted">Личный агрегатор трёхкомнатных квартир</div>
       </div>
       {% if last_run %}
-        <div class="muted">
+        <div class="status">
+          <span class="dot" aria-hidden="true"></span>
           Последний сбор: {{ last_run.started_at|dt }} · {{ last_run.status }}
         </div>
       {% endif %}
     </header>
 
+    <section class="dashboard" aria-label="Сводка">
+      <div class="stat-card">
+        <div class="stat-label">Найдено</div>
+        <div class="stat-value">{{ total }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Показано</div>
+        <div class="stat-value">{{ listings|length }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Источников</div>
+        <div class="stat-value">{{ sources|length }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Период видимости</div>
+        <div class="stat-value">{{ filters.seen_days }} дн.</div>
+      </div>
+    </section>
+
     <form class="filters" method="get">
+      <input type="hidden" name="sort" value="{{ filters.sort }}">
+      <input type="hidden" name="view" value="{{ filters.view }}">
       <label>Цена от
         <input name="price_min" type="number" min="0" value="{{ filters.price_min or '' }}">
       </label>
@@ -200,6 +368,14 @@
           {% endfor %}
         </select>
       </label>
+      <label>Ипотека
+        <select name="mortgage">
+          <option value="" {% if not filters.mortgage %}selected{% endif %}>Не важно</option>
+          <option value="available" {% if filters.mortgage == "available" %}selected{% endif %}>
+            Доступна
+          </option>
+        </select>
+      </label>
       <label>Изменения за
         <select name="changed_days">
           <option value="">Не важно</option>
@@ -219,51 +395,88 @@
           {% endfor %}
         </select>
       </label>
-      <label>Сортировка
-        <select name="sort">
-          <option value="price" {% if filters.sort == "price" %}selected{% endif %}>Цена</option>
-          <option value="price_m2" {% if filters.sort == "price_m2" %}selected{% endif %}>₽/м²</option>
-          <option value="area" {% if filters.sort == "area" %}selected{% endif %}>Площадь</option>
-          <option value="last_seen" {% if filters.sort == "last_seen" %}selected{% endif %}>
-            Последнее наблюдение
-          </option>
-          <option value="newest" {% if filters.sort == "newest" %}selected{% endif %}>Новые</option>
-          <option value="best" {% if filters.sort == "best" %}selected{% endif %}>Лучшие</option>
-        </select>
-      </label>
       <div class="actions">
         <button type="submit">Фильтровать</button>
         <a class="button secondary" href="/">Сбросить</a>
       </div>
     </form>
 
-    <div class="summary">
-      <div>Найдено: {{ total }}{% if total > limit %}, показаны первые {{ limit }}{% endif %}</div>
-      <div>Период видимости: {{ filters.seen_days }} дн.</div>
+    <div class="toolbar">
+      <div class="summary">
+        <div>Найдено: {{ total }}{% if total > limit %}, показаны первые {{ limit }}{% endif %}</div>
+        <div>Период видимости: {{ filters.seen_days }} дн.</div>
+      </div>
+      <nav class="views" aria-label="Разделы">
+        <a class="view-tab{% if filters.view == 'active' %} active{% endif %}" href="{{ view_url(request, 'active') }}">
+          Активные
+        </a>
+        <a class="view-tab{% if filters.view == 'favorites' %} active{% endif %}" href="{{ view_url(request, 'favorites') }}">
+          Избранное
+        </a>
+        <a class="view-tab{% if filters.view == 'hidden' %} active{% endif %}" href="{{ view_url(request, 'hidden') }}">
+          Скрытые
+        </a>
+      </nav>
     </div>
 
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Цена</th>
-            <th>₽/м²</th>
-            <th>Площадь</th>
-            <th>Этаж</th>
+            <th>
+              <a
+                class="th-sort{% if filters.sort in ['price', 'price_desc'] %} active{% endif %}"
+                href="{{ sort_url(request, 'price_desc' if filters.sort == 'price' else 'price') }}"
+              >Цена{% if filters.sort == 'price' %}↑{% elif filters.sort == 'price_desc' %}↓{% endif %}</a>
+            </th>
+            <th>
+              <a
+                class="th-sort{% if filters.sort in ['price_m2', 'price_m2_desc'] %} active{% endif %}"
+                href="{{ sort_url(request, 'price_m2_desc' if filters.sort == 'price_m2' else 'price_m2') }}"
+              >₽/м²{% if filters.sort == 'price_m2' %}↑{% elif filters.sort == 'price_m2_desc' %}↓{% endif %}</a>
+            </th>
+            <th>
+              <a
+                class="th-sort{% if filters.sort in ['area', 'area_asc'] %} active{% endif %}"
+                href="{{ sort_url(request, 'area_asc' if filters.sort == 'area' else 'area') }}"
+              >Площадь{% if filters.sort == 'area_asc' %}↑{% elif filters.sort == 'area' %}↓{% endif %}</a>
+            </th>
+            <th>
+              <a
+                class="th-sort{% if filters.sort in ['floor', 'floor_desc'] %} active{% endif %}"
+                href="{{ sort_url(request, 'floor_desc' if filters.sort == 'floor' else 'floor') }}"
+              >Этаж{% if filters.sort == 'floor' %}↑{% elif filters.sort == 'floor_desc' %}↓{% endif %}</a>
+            </th>
             <th>Адрес / заголовок</th>
             <th>Район</th>
-            <th>Рекомендация</th>
-            <th>Статистика</th>
-            <th>Источник</th>
-            <th>Первый раз</th>
-            <th>Последний раз</th>
-            <th></th>
+            <th class="recommendation-col">
+              <a
+                class="th-sort{% if filters.sort in ['best', 'score_asc'] %} active{% endif %}"
+                href="{{ sort_url(request, 'score_asc' if filters.sort == 'best' else 'best') }}"
+              >Рекомендация{% if filters.sort == 'score_asc' %}↑{% elif filters.sort == 'best' %}↓{% endif %}</a>
+            </th>
+            <th class="stats-col">Статистика</th>
+            <th class="source-col">Источник</th>
+            <th class="date-col">
+              <a
+                class="th-sort{% if filters.sort == 'newest' %} active{% endif %}"
+                href="{{ sort_url(request, 'newest') }}"
+              >Первый раз{% if filters.sort == 'newest' %}↓{% endif %}</a>
+            </th>
+            <th class="date-col">
+              <a
+                class="th-sort{% if filters.sort == 'last_seen' %} active{% endif %}"
+                href="{{ sort_url(request, 'last_seen') }}"
+              >Последний раз{% if filters.sort == 'last_seen' %}↓{% endif %}</a>
+            </th>
+            <th class="action-col">Детали</th>
           </tr>
         </thead>
         <tbody>
           {% for item in listings %}
             {% set item_stats = stats[item.id] %}
             {% set recommendation = recommendations[item.id] %}
+            {% set user_state = user_states.get(item.id) %}
             {% set delta_class = "down" if (item_stats.total_change_rub or 0) < 0 else "up" %}
             <tr>
               <td class="num">{{ item.price_rub|rub }}</td>
@@ -279,10 +492,12 @@
                 {% endif %}
               </td>
               <td class="addr">
-                {{ item.address_normalized or item.address_raw or item.title or "-" }}
+                <a class="row-link" href="/listings/{{ item.id }}">
+                  {{ item.address_normalized or item.address_raw or item.title or "-" }}
+                </a>
               </td>
               <td>{{ item.district or "-" }}</td>
-              <td>
+              <td class="recommendation-col">
                 <span class="score">{{ recommendation.score }}</span>
                 {% if recommendation.reasons %}
                   <ul class="reason-list">
@@ -299,17 +514,37 @@
                   </ul>
                 {% endif %}
               </td>
-              <td class="num">
+              <td class="num stats-col">
                 {{ item_stats.observations_count }} набл. · {{ item_stats.price_changes_count }} изм.<br>
                 мин {{ item_stats.min_price_rub|rub }} · макс {{ item_stats.max_price_rub|rub }}<br>
                 <span class="{{ delta_class }}">
                   {{ item_stats.total_change_rub|rub }} · {{ item_stats.total_change_percent|percent }}
                 </span>
               </td>
-              <td><span class="badge">{{ item.source }}</span></td>
-              <td class="num">{{ item.first_seen_at|dt }}</td>
-              <td class="num">{{ item.last_seen_at|dt }}</td>
-              <td><a href="/listings/{{ item.id }}">Карточка</a></td>
+              <td class="source-col"><span class="badge">{{ item.source }}</span></td>
+              <td class="num date-col">{{ item.first_seen_at|dt }}</td>
+              <td class="num date-col">{{ item.last_seen_at|dt }}</td>
+              <td class="action-col">
+                <div class="row-actions">
+                  <a class="button secondary small" href="/listings/{{ item.id }}">Карточка</a>
+                  <form method="post" action="/listings/{{ item.id }}/state?action={{ 'unfavorite' if user_state and user_state.is_favorite else 'favorite' }}">
+                    <button
+                      class="icon-button{% if user_state and user_state.is_favorite %} active{% endif %}"
+                      type="submit"
+                      title="{{ 'Убрать из избранного' if user_state and user_state.is_favorite else 'В избранное' }}"
+                      aria-label="{{ 'Убрать из избранного' if user_state and user_state.is_favorite else 'В избранное' }}"
+                    >★</button>
+                  </form>
+                  <form method="post" action="/listings/{{ item.id }}/state?action={{ 'unhide' if filters.view == 'hidden' else 'hide' }}">
+                    <button
+                      class="icon-button danger"
+                      type="submit"
+                      title="{{ 'Вернуть в список' if filters.view == 'hidden' else 'Скрыть из списка' }}"
+                      aria-label="{{ 'Вернуть в список' if filters.view == 'hidden' else 'Скрыть из списка' }}"
+                    >{{ '↩' if filters.view == 'hidden' else '×' }}</button>
+                  </form>
+                </div>
+              </td>
             </tr>
           {% else %}
             <tr><td colspan="12" class="empty">По текущим фильтрам ничего нет.</td></tr>

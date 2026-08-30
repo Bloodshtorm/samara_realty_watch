@@ -53,3 +53,75 @@ def test_parse_filters_parses_numeric_values() -> None:
 def test_parse_filters_rejects_invalid_numeric_values() -> None:
     with pytest.raises(HTTPException):
         parse_filters(price_min="wrong")
+
+
+def test_parse_filters_accepts_sort_directions() -> None:
+    for sort in (
+        "price_desc",
+        "price_m2_desc",
+        "area_asc",
+        "floor",
+        "floor_desc",
+        "best",
+        "score_asc",
+    ):
+        filters = parse_filters(
+            price_min="",
+            price_max="",
+            price_m2_max="",
+            area_min="",
+            area_max="",
+            floor_min="",
+            floor_max="",
+            floors_total_max="",
+            district="",
+            source="",
+            changed_days="",
+            seen_days="7",
+            sort=sort,
+            view="active",
+        )
+        assert filters.sort == sort
+
+
+def test_parse_filters_accepts_list_views() -> None:
+    for view in ("active", "favorites", "hidden"):
+        filters = parse_filters(
+            price_min="",
+            price_max="",
+            price_m2_max="",
+            area_min="",
+            area_max="",
+            floor_min="",
+            floor_max="",
+            floors_total_max="",
+            district="",
+            source="",
+            changed_days="",
+            seen_days="7",
+            sort="price",
+            view=view,
+        )
+        assert filters.view == view
+
+
+def test_parse_filters_accepts_mortgage_filter() -> None:
+    filters = parse_filters(
+        price_min="",
+        price_max="",
+        price_m2_max="",
+        area_min="",
+        area_max="",
+        floor_min="",
+        floor_max="",
+        floors_total_max="",
+        district="",
+        source="",
+        mortgage="available",
+        changed_days="",
+        seen_days="7",
+        sort="price",
+        view="active",
+    )
+
+    assert filters.mortgage == "available"

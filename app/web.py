@@ -5,17 +5,25 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import Select, and_, exists, func, select
+from sqlalchemy import Select, and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.db import create_engine, create_session_factory
-from app.models import CollectorRun, Listing, ListingObservation, PriceHistory
+from app.models import (
+    Base,
+    CollectorRun,
+    Listing,
+    ListingObservation,
+    ListingUserState,
+    PriceHistory,
+)
 from app.reporting_format import format_dt, format_m2, format_percent, format_rub
 from services.analytics import (
     ListingHistoryStats,
@@ -26,6 +34,22 @@ from services.analytics import (
 )
 
 PAGE_SIZE = 100
+SORT_VALUES = (
+    "price",
+    "price_desc",
+    "price_m2",
+    "price_m2_desc",
+    "area",
+    "area_asc",
+    "floor",
+    "floor_desc",
+    "last_seen",
+    "newest",
+    "best",
+    "score_asc",
+)
+VIEW_VALUES = ("active", "favorites", "hidden")
+MORTGAGE_VALUES = ("", "available")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["rub"] = format_rub
 templates.env.filters["m2"] = format_m2
@@ -51,9 +75,11 @@ class ListingFilters:
     floors_total_max: int | None = None
     district: str | None = None
     source: str | None = None
+    mortgage: str = ""
     changed_days: int | None = None
     seen_days: int = 7
     sort: str = "price"
+    view: str = "active"
 
 
 @asynccontextmanager
@@ -61,6 +87,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = Settings()
     engine = create_engine(settings)
     app.state.web = WebState(engine=engine, session_factory=create_session_factory(engine))
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     try:
         yield
     finally:
@@ -81,9 +109,17 @@ def parse_filters(
     floors_total_max: str | None = Query(default=None),
     district: str | None = Query(default=None),
     source: str | None = Query(default=None),
+    mortgage: str = Query(default="", pattern="^(|available)$"),
     changed_days: str | None = Query(default=None),
     seen_days: str = Query(default="7"),
-    sort: str = Query(default="price", pattern="^(price|price_m2|area|last_seen|newest|best)$"),
+    sort: str = Query(
+        default="price",
+        pattern=(
+            "^(price|price_desc|price_m2|price_m2_desc|area|area_asc|floor|floor_desc|"
+            "last_seen|newest|best|score_asc)$"
+        ),
+    ),
+    view: str = Query(default="active", pattern="^(active|favorites|hidden)$"),
 ) -> ListingFilters:
     return ListingFilters(
         price_min=_optional_int("price_min", price_min, minimum=0),
@@ -96,9 +132,11 @@ def parse_filters(
         floors_total_max=_optional_int("floors_total_max", floors_total_max, minimum=0),
         district=district.strip() if district else None,
         source=source.strip() if source else None,
+        mortgage=mortgage if mortgage in MORTGAGE_VALUES else "",
         changed_days=_optional_int("changed_days", changed_days, minimum=1, maximum=365),
         seen_days=_optional_int("seen_days", seen_days, minimum=1, maximum=365) or 7,
-        sort=sort,
+        sort=sort if sort in SORT_VALUES else "price",
+        view=view if view in VIEW_VALUES else "active",
     )
 
 
@@ -160,7 +198,7 @@ async def listings_page(
     stmt = _filtered_listings_query(filters)
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
     total = await session.scalar(count_stmt)
-    candidate_limit = 500 if filters.sort == "best" else PAGE_SIZE
+    candidate_limit = 500 if filters.sort in {"best", "score_asc"} else PAGE_SIZE
     listings = list((await session.execute(stmt.limit(candidate_limit))).scalars().all())
     stats = await listing_history_stats(session, [item.id for item in listings])
     segments = build_market_segments(await _recent_market_listings(session, filters.seen_days))
@@ -168,9 +206,13 @@ async def listings_page(
         item.id: recommend_listing(item, stats[item.id], segments.get(segment_key(item)))
         for item in listings
     }
-    if filters.sort == "best":
-        listings.sort(key=lambda item: recommendations[item.id].score, reverse=True)
+    if filters.sort in {"best", "score_asc"}:
+        listings.sort(
+            key=lambda item: recommendations[item.id].score,
+            reverse=filters.sort == "best",
+        )
     listings = listings[:PAGE_SIZE]
+    user_states = await _user_states(session, [item.id for item in listings])
     districts = (await session.execute(_distinct_values(Listing.district))).scalars().all()
     sources = (await session.execute(_distinct_values(Listing.source))).scalars().all()
     last_run = (
@@ -187,11 +229,14 @@ async def listings_page(
             "listings": listings,
             "stats": stats,
             "recommendations": recommendations,
+            "user_states": user_states,
             "total": total or 0,
             "limit": PAGE_SIZE,
             "districts": districts,
             "sources": sources,
             "last_run": last_run,
+            "sort_url": _sort_url,
+            "view_url": _view_url,
         },
     )
 
@@ -238,12 +283,47 @@ async def listing_detail(
             "recommendation": recommendation,
             "observations": observations,
             "price_changes": price_changes,
+            "user_state": await _user_state(session, listing.id),
         },
     )
 
 
+@app.post("/listings/{listing_id}/state")
+async def update_listing_state(
+    request: Request,
+    listing_id: UUID,
+    action: str = Query(pattern="^(favorite|unfavorite|hide|unhide)$"),
+    session: AsyncSession = SESSION_DEP,
+) -> RedirectResponse:
+    listing = await session.get(Listing, listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    state = await _user_state(session, listing_id)
+    if state is None:
+        state = ListingUserState(listing_id=listing_id)
+        session.add(state)
+
+    match action:
+        case "favorite":
+            state.is_favorite = True
+        case "unfavorite":
+            state.is_favorite = False
+        case "hide":
+            state.is_hidden = True
+        case "unhide":
+            state.is_hidden = False
+
+    await session.commit()
+    return RedirectResponse(request.headers.get("referer") or "/", status_code=303)
+
+
 def _filtered_listings_query(filters: ListingFilters) -> Select[tuple[Listing]]:
-    conditions = [Listing.last_seen_at >= datetime.now(UTC) - timedelta(days=filters.seen_days)]
+    conditions = [
+        Listing.is_active.is_(True),
+        Listing.rooms == 3,
+        Listing.last_seen_at >= datetime.now(UTC) - timedelta(days=filters.seen_days),
+    ]
     if filters.price_min is not None:
         conditions.append(Listing.price_rub >= filters.price_min)
     if filters.price_max is not None:
@@ -264,6 +344,15 @@ def _filtered_listings_query(filters: ListingFilters) -> Select[tuple[Listing]]:
         conditions.append(Listing.district == filters.district)
     if filters.source:
         conditions.append(Listing.source == filters.source)
+    if filters.mortgage == "available":
+        conditions.append(
+            or_(
+                Listing.features["mortgage_available"].as_boolean().is_(True),
+                Listing.features["family_mortgage"].as_boolean().is_(True),
+                Listing.features["it_mortgage"].as_boolean().is_(True),
+                Listing.features["subsidized_mortgage"].as_boolean().is_(True),
+            )
+        )
     if filters.changed_days is not None:
         changed_after = datetime.now(UTC) - timedelta(days=filters.changed_days)
         conditions.append(
@@ -272,12 +361,39 @@ def _filtered_listings_query(filters: ListingFilters) -> Select[tuple[Listing]]:
             .where(PriceHistory.observed_at >= changed_after)
         )
 
-    stmt = select(Listing).where(and_(*conditions))
+    match filters.view:
+        case "favorites":
+            conditions.append(ListingUserState.is_favorite.is_(True))
+            conditions.append(
+                or_(ListingUserState.is_hidden.is_(False), ListingUserState.is_hidden.is_(None))
+            )
+        case "hidden":
+            conditions.append(ListingUserState.is_hidden.is_(True))
+        case _:
+            conditions.append(
+                or_(ListingUserState.is_hidden.is_(False), ListingUserState.is_hidden.is_(None))
+            )
+
+    stmt = (
+        select(Listing)
+        .outerjoin(ListingUserState, ListingUserState.listing_id == Listing.id)
+        .where(and_(*conditions))
+    )
     match filters.sort:
+        case "price_desc":
+            return stmt.order_by(Listing.price_rub.desc().nulls_last())
         case "price_m2":
             return stmt.order_by(Listing.price_per_m2.asc().nulls_last())
+        case "price_m2_desc":
+            return stmt.order_by(Listing.price_per_m2.desc().nulls_last())
         case "area":
             return stmt.order_by(Listing.area_total_m2.desc().nulls_last())
+        case "area_asc":
+            return stmt.order_by(Listing.area_total_m2.asc().nulls_last())
+        case "floor":
+            return stmt.order_by(Listing.floor.asc().nulls_last())
+        case "floor_desc":
+            return stmt.order_by(Listing.floor.desc().nulls_last())
         case "last_seen":
             return stmt.order_by(Listing.last_seen_at.desc())
         case "newest":
@@ -292,12 +408,48 @@ def _distinct_values(column) -> Select[tuple[str]]:
     return select(column).where(column.is_not(None)).distinct().order_by(column)
 
 
+def _sort_url(request: Request, sort: str) -> str:
+    params = dict(request.query_params)
+    params["sort"] = sort
+    return f"?{urlencode(params)}"
+
+
+def _view_url(request: Request, view: str) -> str:
+    params = dict(request.query_params)
+    params["view"] = view
+    return f"?{urlencode(params)}"
+
+
+async def _user_state(session: AsyncSession, listing_id: UUID) -> ListingUserState | None:
+    return (
+        await session.execute(
+            select(ListingUserState).where(ListingUserState.listing_id == listing_id)
+        )
+    ).scalar_one_or_none()
+
+
+async def _user_states(
+    session: AsyncSession,
+    listing_ids: list[UUID],
+) -> dict[UUID, ListingUserState]:
+    if not listing_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(ListingUserState).where(ListingUserState.listing_id.in_(listing_ids))
+        )
+    ).scalars()
+    return {state.listing_id: state for state in rows}
+
+
 async def _recent_market_listings(session: AsyncSession, seen_days: int) -> list[Listing]:
     cutoff = datetime.now(UTC) - timedelta(days=seen_days)
     return list(
         (
             await session.execute(
                 select(Listing).where(
+                    Listing.is_active.is_(True),
+                    Listing.rooms == 3,
                     Listing.last_seen_at >= cutoff,
                     Listing.price_rub.is_not(None),
                     Listing.price_per_m2.is_not(None),

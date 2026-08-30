@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from collectors.html_extract import parsed_from_json_ld, parsed_from_offer_links
+from collectors.html_extract import (
+    parsed_from_avito_cards,
+    parsed_from_json_ld,
+    parsed_from_offer_links,
+)
 
 
 def test_yandex_fixture_json_ld() -> None:
@@ -53,3 +57,29 @@ def test_offer_links_price_after_building_quarter() -> None:
         "https://realty.yandex.ru/samara/",
     )[0]
     assert listing.price_rub == 11_350_000
+
+
+def test_avito_cards_fixture() -> None:
+    html = """
+    <div data-marker="item">
+      <a data-marker="item-title"
+         href="/samara/kvartiry/3-k._kvartira_682_m_510_et._7910876373">
+        3-к. квартира, 68,2 м², 5/10 эт.
+      </a>
+      <span>8 525 000 ₽</span>
+      <span>125 000 ₽ за м²</span>
+      <a data-marker="street_link">ул. Центральная</a>
+      <a data-marker="house_link">д. 32</a>
+      <span>р-н Куйбышевский</span>
+      <p>Дом сдан. Чистовая отделка.</p>
+    </div>
+    """
+    listing = parsed_from_avito_cards("avito", html, "https://www.avito.ru")[0]
+    assert listing.source_listing_id == "7910876373"
+    assert listing.rooms == 3
+    assert listing.area_total_m2 == 68.2
+    assert listing.floor == 5
+    assert listing.floors_total == 10
+    assert listing.price_rub == 8_525_000
+    assert listing.price_per_m2 == 125_000
+    assert listing.address_normalized == "улица центральная, дом 32, р-н куйбышевский"

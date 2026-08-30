@@ -23,14 +23,22 @@ async def generate_report(session: AsyncSession, output_path: Path, days: int = 
     cutoff = datetime.now(UTC) - timedelta(days=days)
     listing_rows = await session.execute(
         select(Listing)
-        .where(Listing.last_seen_at >= cutoff)
+        .where(
+            Listing.is_active.is_(True),
+            Listing.rooms == 3,
+            Listing.last_seen_at >= cutoff,
+        )
         .order_by(Listing.price_rub.asc().nulls_last(), Listing.last_seen_at.desc())
     )
     listings = list(listing_rows.scalars().all())
     change_rows = await session.execute(
         select(PriceHistory, Listing)
         .join(Listing, PriceHistory.listing_id == Listing.id)
-        .where(PriceHistory.observed_at >= cutoff)
+        .where(
+            Listing.is_active.is_(True),
+            Listing.rooms == 3,
+            PriceHistory.observed_at >= cutoff,
+        )
         .order_by(PriceHistory.observed_at.desc())
     )
     changes = [(row[0], row[1]) for row in change_rows.all()]

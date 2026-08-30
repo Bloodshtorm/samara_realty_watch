@@ -39,6 +39,20 @@ make report
 cd /d/dev/samara_realty_watch
 ```
 
+На свежем Debian-сервере можно подготовить системные prerequisites, `.venv`, локальные конфиги и сразу прогнать проверки:
+
+```bash
+cd ~/soft/github/samara_realty_watch
+bash scripts/bootstrap-debian.sh
+bash scripts/install-user-systemd.sh
+```
+
+Для работы после logout/reboot один раз включите linger:
+
+```bash
+sudo loginctl enable-linger "$USER"
+```
+
 ## Конфигурация поисков
 
 Создайте сохранённый поиск на сайте вручную, авторизуйтесь в обычном Chromium и вставьте URL:
