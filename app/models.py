@@ -29,15 +29,40 @@ def uuid_pk() -> Mapped[uuid.UUID]:
     return mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
 
+class SearchContext(Base):
+    __tablename__ = "search_contexts"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    object_type: Mapped[str] = mapped_column(String(50), default="flat")
+    city: Mapped[str] = mapped_column(String(100), default="Самара")
+    expected_rooms: Mapped[int | None] = mapped_column(Integer)
+    center_latitude: Mapped[float | None] = mapped_column(Float)
+    center_longitude: Mapped[float | None] = mapped_column(Float)
+    radius_km: Mapped[float | None] = mapped_column(Float)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    rules: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    searches: Mapped[list[Search]] = relationship(back_populates="context")
+
+
 class Search(Base):
     __tablename__ = "searches"
 
     id: Mapped[uuid.UUID] = uuid_pk()
+    context_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("search_contexts.id", ondelete="SET NULL"), index=True
+    )
     name: Mapped[str] = mapped_column(String(200), unique=True)
     source: Mapped[str] = mapped_column(String(50), index=True)
     url: Mapped[str] = mapped_column(Text)
     city: Mapped[str] = mapped_column(String(100))
-    rooms: Mapped[int] = mapped_column(Integer)
+    rooms: Mapped[int | None] = mapped_column(Integer)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     interval_hours: Mapped[int] = mapped_column(Integer, default=4)
     max_pages: Mapped[int] = mapped_column(Integer, default=10)
@@ -49,6 +74,8 @@ class Search(Base):
     last_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_status: Mapped[str | None] = mapped_column(String(50))
     last_error: Mapped[str | None] = mapped_column(Text)
+
+    context: Mapped[SearchContext | None] = relationship(back_populates="searches")
 
 
 class Listing(Base):

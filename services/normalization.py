@@ -145,7 +145,10 @@ def should_exclude_listing(
     address_normalized: str | None,
     floors_total: int | None,
     expected_rooms: int | None = None,
+    object_type: str = "flat",
 ) -> bool:
+    if object_type == "land":
+        return is_fractional_share_listing(title, description, property_type)
     return (
         is_fractional_share_listing(title, description, property_type)
         or is_outside_samara_city_listing(address_raw, address_normalized, title, description)

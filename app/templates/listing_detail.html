@@ -114,6 +114,24 @@
     ul { margin: 8px 0 0; padding-left: 20px; }
     li { margin: 4px 0; }
     .warning { color: var(--warn); }
+    .price-chart {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .chart-line { fill: none; stroke: var(--accent); stroke-width: 3; }
+    .chart-line.up { stroke: var(--danger); }
+    .chart-line.down { stroke: var(--ok); }
+    .chart-dot { fill: #fff; stroke: currentColor; stroke-width: 2; }
+    .chart-axis { stroke: var(--line); stroke-width: 1; }
+    .chart-labels {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
     @media (max-width: 800px) {
       main { width: min(100% - 24px, 800px); padding-top: 16px; }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -242,6 +260,42 @@
     </section>
 
     <h2>Изменения цены</h2>
+    <section class="panel">
+      {% if price_timeline %}
+        <svg
+          class="price-chart"
+          viewBox="0 0 {{ price_timeline.width }} {{ price_timeline.height }}"
+          role="img"
+          aria-label="График изменения цены"
+        >
+          <line class="chart-axis" x1="46" y1="192" x2="674" y2="192"></line>
+          <line class="chart-axis" x1="46" y1="28" x2="46" y2="192"></line>
+          <polyline
+            class="chart-line {{ price_timeline.trend_class }}"
+            points="{{ price_timeline.points }}"
+          ></polyline>
+          {% for point in price_timeline.circles %}
+            <circle
+              class="chart-dot {{ price_timeline.trend_class }}"
+              cx="{{ point.x }}"
+              cy="{{ point.y }}"
+              r="4"
+            >
+              <title>{{ point.label }}</title>
+            </circle>
+          {% endfor %}
+        </svg>
+        <div class="chart-labels">
+          <span>{{ price_timeline.start_date }} · {{ price_timeline.min_price }}</span>
+          <span class="{{ price_timeline.trend_class }}">
+            Итого: {{ price_timeline.trend_label }}
+          </span>
+          <span>{{ price_timeline.end_date }} · {{ price_timeline.max_price }}</span>
+        </div>
+      {% else %}
+        <div class="empty">Для графика нужно минимум два наблюдения с ценой.</div>
+      {% endif %}
+    </section>
     <div class="table-wrap">
       <table>
         <thead>

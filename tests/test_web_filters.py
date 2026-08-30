@@ -6,6 +6,7 @@ from app.web import parse_filters
 
 def test_parse_filters_treats_empty_form_values_as_none() -> None:
     filters = parse_filters(
+        context="3rooms_samara",
         price_min="",
         price_max="",
         price_m2_max="",
@@ -26,10 +27,12 @@ def test_parse_filters_treats_empty_form_values_as_none() -> None:
     assert filters.changed_days is None
     assert filters.source == "mirkvartir"
     assert filters.seen_days == 7
+    assert filters.context == "3rooms_samara"
 
 
 def test_parse_filters_parses_numeric_values() -> None:
     filters = parse_filters(
+        context="land_samara_50km",
         price_min="5000000",
         price_max=None,
         price_m2_max=None,
@@ -48,6 +51,7 @@ def test_parse_filters_parses_numeric_values() -> None:
     assert filters.price_min == 5_000_000
     assert filters.area_min == 65.5
     assert filters.seen_days == 30
+    assert filters.context == "land_samara_50km"
 
 
 def test_parse_filters_rejects_invalid_numeric_values() -> None:
@@ -67,6 +71,7 @@ def test_parse_filters_accepts_sort_directions() -> None:
     ):
         filters = parse_filters(
             price_min="",
+            context="3rooms_samara",
             price_max="",
             price_m2_max="",
             area_min="",
@@ -88,6 +93,7 @@ def test_parse_filters_accepts_list_views() -> None:
     for view in ("active", "favorites", "hidden"):
         filters = parse_filters(
             price_min="",
+            context="3rooms_samara",
             price_max="",
             price_m2_max="",
             area_min="",
@@ -107,6 +113,7 @@ def test_parse_filters_accepts_list_views() -> None:
 
 def test_parse_filters_accepts_mortgage_filter() -> None:
     filters = parse_filters(
+        context="3rooms_samara",
         price_min="",
         price_max="",
         price_m2_max="",

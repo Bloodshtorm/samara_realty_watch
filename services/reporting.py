@@ -25,7 +25,6 @@ async def generate_report(session: AsyncSession, output_path: Path, days: int = 
         select(Listing)
         .where(
             Listing.is_active.is_(True),
-            Listing.rooms == 3,
             Listing.last_seen_at >= cutoff,
         )
         .order_by(Listing.price_rub.asc().nulls_last(), Listing.last_seen_at.desc())
@@ -36,7 +35,6 @@ async def generate_report(session: AsyncSession, output_path: Path, days: int = 
         .join(Listing, PriceHistory.listing_id == Listing.id)
         .where(
             Listing.is_active.is_(True),
-            Listing.rooms == 3,
             PriceHistory.observed_at >= cutoff,
         )
         .order_by(PriceHistory.observed_at.desc())

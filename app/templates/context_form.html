@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Новый контекст</title>
+  <style>
+    :root {
+      --bg: #eef2f6;
+      --panel: #ffffff;
+      --text: #19202a;
+      --muted: #657080;
+      --line: #d9dee7;
+      --accent: #0f766e;
+      --shadow: 0 10px 28px rgba(15, 23, 42, .08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(760px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
+    a { color: var(--accent); text-decoration: none; font-weight: 700; }
+    h1 { margin: 12px 0 16px; font-size: 28px; }
+    form {
+      display: grid;
+      gap: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+    label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+    input, select {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 7px 9px;
+      color: var(--text);
+      background: #fff;
+      font: inherit;
+    }
+    .checks {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      color: var(--text);
+      font-size: 14px;
+    }
+    .check input { width: auto; min-height: auto; }
+    button {
+      width: fit-content;
+      min-height: 36px;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 7px 14px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="/">← Все объявления</a>
+    <h1>Новый контекст</h1>
+    <form method="post" action="/contexts">
+      <label>Название
+        <input name="name" required placeholder="Например: Студии в Самаре">
+      </label>
+      <label>Тип объекта
+        <select name="object_type">
+          <option value="flat" selected>Квартира</option>
+          <option value="land">Участок</option>
+        </select>
+      </label>
+      <label>Комнатность
+        <select name="expected_rooms">
+          <option value="">Не применяется</option>
+          <option value="0">Студия</option>
+          <option value="1">1 комната</option>
+          <option value="2">2 комнаты</option>
+          <option value="3" selected>3 комнаты</option>
+          <option value="4">4 комнаты</option>
+          <option value="5">5 комнат</option>
+        </select>
+      </label>
+      <label>Город / центр поиска
+        <input name="city" value="{{ defaults.city }}">
+      </label>
+      <label>Радиус, км
+        <input name="radius_km" type="number" min="1" step="1" value="{{ defaults.radius_km }}">
+      </label>
+      <div>
+        <div class="muted">Источники</div>
+        <div class="checks">
+          {% for source in sources %}
+            <label class="check">
+              <input type="checkbox" name="sources" value="{{ source }}" checked>
+              {{ source }}
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+      <button type="submit">Создать контекст</button>
+      <div class="muted">
+        Поиски из формы создаются выключенными. После проверки URL и парсера их можно включить.
+      </div>
+    </form>
+  </main>
+</body>
+</html>

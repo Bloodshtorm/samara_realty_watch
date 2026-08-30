@@ -8,14 +8,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.browser import persistent_context
-from app.config import SearchConfig, Settings, load_searches, load_yaml
+from app.config import DEFAULT_CONTEXT_SLUG, SearchConfig, Settings, load_search_config, load_yaml
 from app.db import create_engine, create_session_factory
-from app.models import Base, CollectorRun, Search
+from app.models import Base, CollectorRun, Search, SearchContext
 from collectors import COLLECTORS
 from collectors.debug import setup_debug
 from services.ingestion import upsert_listing
 from services.normalization import should_exclude_listing
 from services.scoring import MarketStats, score_listing
+from services.search_contexts import sync_contexts_from_config
 from services.telegram import format_error_message, send_telegram
 
 log = structlog.get_logger()
@@ -28,7 +29,11 @@ async def init_db(settings: Settings) -> None:
     await engine.dispose()
 
 
-async def sync_search(session: AsyncSession, item: SearchConfig) -> Search:
+async def sync_search(
+    session: AsyncSession,
+    item: SearchConfig,
+    contexts: dict[str, SearchContext],
+) -> Search:
     existing = (
         await session.execute(select(Search).where(Search.name == item.name))
     ).scalar_one_or_none()
@@ -37,6 +42,10 @@ async def sync_search(session: AsyncSession, item: SearchConfig) -> Search:
             name=item.name, source=item.source, url=item.url, city=item.city, rooms=item.rooms
         )
         session.add(existing)
+    context = contexts.get(item.context_slug or DEFAULT_CONTEXT_SLUG)
+    if context is None:
+        raise ValueError(f"Unknown search context: {item.context_slug}")
+    existing.context_id = context.id
     existing.source = item.source
     existing.url = item.url
     existing.city = item.city
@@ -57,10 +66,13 @@ async def collect_once(
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
     scoring_config = load_yaml(settings.scoring_config_path)
-    searches_config = load_searches(settings.searches_config_path)
+    search_config = load_search_config(settings.searches_config_path)
     async with session_factory() as session:
         async with session.begin():
-            searches = [await sync_search(session, item) for item in searches_config]
+            contexts = await sync_contexts_from_config(session, settings.searches_config_path)
+            searches = [
+                await sync_search(session, item, contexts) for item in search_config.searches
+            ]
 
     @asynccontextmanager
     async def browser():
@@ -82,6 +94,7 @@ async def collect_once(
                 async with session.begin():
                     db_search = await session.get(Search, search.id)
                     assert db_search is not None
+                    await session.refresh(db_search, ["context"])
                     run = CollectorRun(source=search.source, search_id=search.id, status="started")
                     db_search.last_started_at = datetime.now(UTC)
                     session.add(run)
@@ -106,7 +119,12 @@ async def collect_once(
                             address_raw=listing.address_raw,
                             address_normalized=listing.address_normalized,
                             floors_total=listing.floors_total,
-                            expected_rooms=search.rooms,
+                            expected_rooms=db_search.context.expected_rooms
+                            if db_search.context
+                            else search.rooms,
+                            object_type=db_search.context.object_type
+                            if db_search.context
+                            else "flat",
                         )
                     ]
                     created = updated = price_changes = 0
