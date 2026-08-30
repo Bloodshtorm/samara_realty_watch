@@ -603,7 +603,6 @@ def _map_points(
                 "price": format_rub(item.price_rub),
                 "title": item.address_normalized or item.address_raw or item.title or "-",
                 "source": item.source,
-                "score": item.score,
                 "url": f"/listings/{item.id}",
                 "favorite_action": "unfavorite"
                 if user_states.get(item.id) and user_states[item.id].is_favorite

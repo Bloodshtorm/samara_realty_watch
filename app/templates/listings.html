@@ -326,6 +326,12 @@
       background: #d97706;
       box-shadow: 0 0 0 2px rgba(15, 23, 42, .25), 0 2px 8px rgba(15, 23, 42, .32);
     }
+    .map-focus-ring {
+      border: 3px solid #0f766e;
+      border-radius: 999px;
+      background: rgba(20, 184, 166, .2);
+      box-shadow: 0 0 0 6px rgba(20, 184, 166, .22);
+    }
     .map-cluster {
       min-width: 34px;
       height: 34px;
@@ -443,7 +449,12 @@
       background: var(--accent-soft);
       color: var(--accent);
     }
+    .icon-button.map-focus { color: var(--accent); }
     .icon-button.danger { color: var(--warn); }
+    .icon-button:disabled {
+      cursor: not-allowed;
+      opacity: .45;
+    }
     .badge {
       display: inline-block;
       border: 1px solid var(--line);
@@ -759,6 +770,19 @@
               <td class="action-col">
                 <div class="row-actions">
                   <a class="button secondary small" href="/listings/{{ item.id }}">Карточка</a>
+                  <button
+                    class="icon-button map-focus"
+                    type="button"
+                    {% if item.latitude is not none and item.longitude is not none %}
+                      data-map-listing="{{ item.id }}"
+                      title="Показать на карте"
+                      aria-label="Показать на карте"
+                    {% else %}
+                      disabled
+                      title="Нет координат"
+                      aria-label="Нет координат"
+                    {% endif %}
+                  >⌖</button>
                   <form method="post" action="/listings/{{ item.id }}/state?action={{ 'unfavorite' if user_state and user_state.is_favorite else 'favorite' }}">
                     <button
                       class="icon-button{% if user_state and user_state.is_favorite %} active{% endif %}"
@@ -807,12 +831,14 @@
     const markerLayer = L.layerGroup().addTo(map);
     const clusterGridSize = 54;
     const clusterMaxZoom = 16;
+    const pointsById = new Map(points.map((item) => [String(item.id), item]));
+    let focusRing = null;
 
     const popupHtml = (item) => `
       <div class="map-popup">
         <strong>${escapeHtml(item.price)}</strong>
         <div>${escapeHtml(item.title)}</div>
-        <div>${escapeHtml(item.source)}${item.score ? " · " + escapeHtml(item.score) : ""}</div>
+        <div>${escapeHtml(item.source)}</div>
         <div class="map-popup-actions">
           <a href="${item.url}">Карточка</a>
           <form method="post" action="/listings/${item.id}/state?action=${item.favorite_action}">
@@ -848,6 +874,40 @@
         });
       });
       return marker;
+    };
+
+    const focusListingOnMap = (listingId) => {
+      const item = pointsById.get(String(listingId));
+      if (!item) {
+        return;
+      }
+      const latlng = L.latLng(item.lat, item.lng);
+      document.getElementById("map")?.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
+      map.setView(latlng, Math.max(map.getZoom(), 17), { animate: true });
+      L.popup({ maxWidth: 280 })
+        .setLatLng(latlng)
+        .setContent(popupHtml(item))
+        .openOn(map);
+      if (focusRing) {
+        map.removeLayer(focusRing);
+      }
+      focusRing = L.circleMarker(latlng, {
+        radius: 20,
+        className: "map-focus-ring",
+        color: "#0f766e",
+        fillColor: "#14b8a6",
+        fillOpacity: 0.16,
+        weight: 3
+      }).addTo(map);
+      setTimeout(() => {
+        if (focusRing) {
+          map.removeLayer(focusRing);
+          focusRing = null;
+        }
+      }, 5000);
     };
 
     const renderMarkers = () => {
@@ -912,6 +972,9 @@
       scheduleRenderMarkers();
     };
     map.on("moveend zoomend", scheduleRenderMarkers);
+    document.querySelectorAll("[data-map-listing]").forEach((button) => {
+      button.addEventListener("click", () => focusListingOnMap(button.dataset.mapListing));
+    });
     requestAnimationFrame(refreshMapSize);
     window.addEventListener("load", refreshMapSize);
     window.addEventListener("resize", refreshMapSize);
