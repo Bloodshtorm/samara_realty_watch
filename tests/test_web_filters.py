@@ -1,7 +1,13 @@
 import pytest
 from fastapi import HTTPException
 
-from app.web import SOURCE_CHOICES, _generated_search_url, parse_filters
+from app.web import (
+    SOURCE_CHOICES,
+    _generated_search_url,
+    _point_in_bounds,
+    _point_in_polygon,
+    parse_filters,
+)
 
 
 def test_parse_filters_treats_empty_form_values_as_none() -> None:
@@ -153,3 +159,47 @@ def test_generated_3rooms_urls_cover_all_source_choices() -> None:
     }
 
     assert all(urls.values())
+
+
+def test_point_in_bounds_accepts_points_inside_area() -> None:
+    assert _point_in_bounds(
+        53.20,
+        50.10,
+        north=53.22,
+        south=53.18,
+        east=50.12,
+        west=50.08,
+    )
+
+
+def test_point_in_bounds_rejects_points_outside_area() -> None:
+    assert not _point_in_bounds(
+        53.24,
+        50.10,
+        north=53.22,
+        south=53.18,
+        east=50.12,
+        west=50.08,
+    )
+
+
+def test_point_in_polygon_accepts_points_inside_area() -> None:
+    polygon = [
+        (53.18, 50.08),
+        (53.18, 50.12),
+        (53.22, 50.12),
+        (53.22, 50.08),
+    ]
+
+    assert _point_in_polygon(53.20, 50.10, polygon)
+
+
+def test_point_in_polygon_rejects_points_outside_area() -> None:
+    polygon = [
+        (53.18, 50.08),
+        (53.18, 50.12),
+        (53.22, 50.12),
+        (53.22, 50.08),
+    ]
+
+    assert not _point_in_polygon(53.24, 50.10, polygon)

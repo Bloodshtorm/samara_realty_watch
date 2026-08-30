@@ -204,6 +204,40 @@
       margin-bottom: 2px;
       font-size: 14px;
     }
+    .map-actions {
+      position: absolute;
+      top: 12px;
+      left: 52px;
+      z-index: 650;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-width: calc(100% - 430px);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px;
+      background: rgba(255, 255, 255, .92);
+      box-shadow: 0 6px 18px rgba(15, 23, 42, .14);
+    }
+    .map-actions button {
+      height: 30px;
+      padding: 0 9px;
+      font-size: 12px;
+    }
+    .map-actions button.active {
+      background: var(--warn);
+      border-color: var(--warn);
+    }
+    .map-actions button:disabled {
+      cursor: not-allowed;
+      opacity: .55;
+    }
+    .map-selection-summary {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
     #map {
       width: 100%;
       height: 100%;
@@ -326,6 +360,10 @@
       background: #d97706;
       box-shadow: 0 0 0 2px rgba(15, 23, 42, .25), 0 2px 8px rgba(15, 23, 42, .32);
     }
+    .map-dot.selected {
+      background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(15, 118, 110, .34), 0 2px 8px rgba(15, 23, 42, .32);
+    }
     .map-focus-ring {
       border: 3px solid #0f766e;
       border-radius: 999px;
@@ -348,6 +386,10 @@
       font-weight: 800;
       line-height: 1;
       white-space: nowrap;
+    }
+    .map-cluster.selected {
+      background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(15, 118, 110, .34), 0 3px 10px rgba(15, 23, 42, .36);
     }
     .map-popup strong { display: block; margin-bottom: 4px; }
     .map-popup-actions {
@@ -405,6 +447,7 @@
     }
     tbody tr:nth-child(even) td { background: #fbfcfe; }
     tbody tr:hover td { background: #f5faf9; }
+    tbody tr.spatial-selected td { background: #eefaf7; }
     tr:last-child td { border-bottom: 0; }
     a { color: var(--accent); text-decoration: none; font-weight: 700; }
     .row-link { color: var(--text); font-weight: 600; }
@@ -496,6 +539,15 @@
       .views { margin-top: 8px; }
       .context-tabs { margin-bottom: 8px; }
       .map-panel { height: 340px; }
+      .map-actions {
+        top: 52px;
+        left: 12px;
+        right: 12px;
+        max-width: none;
+      }
+      .map-panel-header {
+        max-width: min(300px, calc(100% - 24px));
+      }
     }
   </style>
 </head>
@@ -634,8 +686,8 @@
     </form>
 
     <div class="toolbar">
-      <div class="summary">
-        <div>Найдено: {{ total }}{% if total > limit %}, показаны первые {{ limit }}{% endif %}</div>
+      <div class="summary" id="list-summary">
+        <div id="result-summary">Найдено: {{ total }}{% if total > limit %}, показаны первые {{ limit }}{% endif %}</div>
         <div>Период видимости: {{ filters.seen_days }} дн.</div>
       </div>
       <nav class="views" aria-label="Разделы">
@@ -652,6 +704,12 @@
     </div>
 
     <section class="map-panel" aria-label="Карта объектов">
+      <div class="map-actions" aria-label="Фильтр по карте">
+        <button id="map-filter-bounds" type="button">Показать по экрану</button>
+        <button id="map-draw-area" type="button">Обвести область</button>
+        <button id="map-reset-area" class="button secondary" type="button" disabled>Сбросить область</button>
+        <span id="map-selection-summary" class="map-selection-summary"></span>
+      </div>
       <div class="map-panel-header">
         <strong>{{ selected_context.name }}</strong>
         На карте: {{ map_points_count }} из {{ total }} найденных
@@ -715,96 +773,8 @@
             <th class="action-col">Детали</th>
           </tr>
         </thead>
-        <tbody>
-          {% for item in listings %}
-            {% set item_stats = stats[item.id] %}
-            {% set recommendation = recommendations[item.id] %}
-            {% set user_state = user_states.get(item.id) %}
-            {% set delta_class = "down" if (item_stats.total_change_rub or 0) < 0 else "up" %}
-            <tr>
-              <td class="num">{{ item.price_rub|rub }}</td>
-              <td class="num">{{ item.price_per_m2|rub }}</td>
-              <td class="num">{{ item.area_total_m2|m2 }}</td>
-              <td class="num">
-                {% if item.floor and item.floors_total %}
-                  {{ item.floor }}/{{ item.floors_total }}
-                {% elif item.floor %}
-                  {{ item.floor }}
-                {% else %}
-                  -
-                {% endif %}
-              </td>
-              <td class="addr">
-                <a class="row-link" href="/listings/{{ item.id }}">
-                  {{ item.address_normalized or item.address_raw or item.title or "-" }}
-                </a>
-              </td>
-              <td>{{ item.district or "-" }}</td>
-              <td class="recommendation-col">
-                <span class="score">{{ recommendation.score }}</span>
-                {% if recommendation.reasons %}
-                  <ul class="reason-list">
-                    {% for reason in recommendation.reasons[:2] %}
-                      <li>{{ reason }}</li>
-                    {% endfor %}
-                  </ul>
-                {% endif %}
-                {% if recommendation.warnings %}
-                  <ul class="warning-list">
-                    {% for warning in recommendation.warnings[:1] %}
-                      <li>{{ warning }}</li>
-                    {% endfor %}
-                  </ul>
-                {% endif %}
-              </td>
-              <td class="num stats-col">
-                {{ item_stats.observations_count }} набл. · {{ item_stats.price_changes_count }} изм.<br>
-                мин {{ item_stats.min_price_rub|rub }} · макс {{ item_stats.max_price_rub|rub }}<br>
-                <span class="{{ delta_class }}">
-                  {{ item_stats.total_change_rub|rub }} · {{ item_stats.total_change_percent|percent }}
-                </span>
-              </td>
-              <td class="source-col"><span class="badge">{{ item.source }}</span></td>
-              <td class="num date-col">{{ item.first_seen_at|dt }}</td>
-              <td class="num date-col">{{ item.last_seen_at|dt }}</td>
-              <td class="action-col">
-                <div class="row-actions">
-                  <a class="button secondary small" href="/listings/{{ item.id }}">Карточка</a>
-                  <button
-                    class="icon-button map-focus"
-                    type="button"
-                    {% if item.latitude is not none and item.longitude is not none %}
-                      data-map-listing="{{ item.id }}"
-                      title="Показать на карте"
-                      aria-label="Показать на карте"
-                    {% else %}
-                      disabled
-                      title="Нет координат"
-                      aria-label="Нет координат"
-                    {% endif %}
-                  >⌖</button>
-                  <form method="post" action="/listings/{{ item.id }}/state?action={{ 'unfavorite' if user_state and user_state.is_favorite else 'favorite' }}">
-                    <button
-                      class="icon-button{% if user_state and user_state.is_favorite %} active{% endif %}"
-                      type="submit"
-                      title="{{ 'Убрать из избранного' if user_state and user_state.is_favorite else 'В избранное' }}"
-                      aria-label="{{ 'Убрать из избранного' if user_state and user_state.is_favorite else 'В избранное' }}"
-                    >★</button>
-                  </form>
-                  <form method="post" action="/listings/{{ item.id }}/state?action={{ 'unhide' if filters.view == 'hidden' else 'hide' }}">
-                    <button
-                      class="icon-button danger"
-                      type="submit"
-                      title="{{ 'Вернуть в список' if filters.view == 'hidden' else 'Скрыть из списка' }}"
-                      aria-label="{{ 'Вернуть в список' if filters.view == 'hidden' else 'Скрыть из списка' }}"
-                    >{{ '↩' if filters.view == 'hidden' else '×' }}</button>
-                  </form>
-                </div>
-              </td>
-            </tr>
-          {% else %}
-            <tr><td colspan="12" class="empty">По текущим фильтрам ничего нет.</td></tr>
-          {% endfor %}
+        <tbody id="listings-body">
+          {% include "_listing_rows.html" %}
         </tbody>
       </table>
     </div>
@@ -814,7 +784,9 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet.freedraw@2.0.1/dist/leaflet-freedraw.web.min.js"></script>
   <script>
+    (() => {
     const points = {{ map_points }};
     const mapContext = {{ map_context }};
     const escapeHtml = (value) => String(value)
@@ -832,7 +804,17 @@
     const clusterGridSize = 54;
     const clusterMaxZoom = 16;
     const pointsById = new Map(points.map((item) => [String(item.id), item]));
+    const listingsBody = document.getElementById("listings-body");
+    const resultSummary = document.getElementById("result-summary");
+    const selectionSummary = document.getElementById("map-selection-summary");
+    const filterBoundsButton = document.getElementById("map-filter-bounds");
+    const drawAreaButton = document.getElementById("map-draw-area");
+    const resetAreaButton = document.getElementById("map-reset-area");
+    const initialRowsHtml = listingsBody.innerHTML;
+    const initialSummaryHtml = resultSummary.innerHTML;
+    let selectedListingIds = null;
     let focusRing = null;
+    let freeDraw = null;
 
     const popupHtml = (item) => `
       <div class="map-popup">
@@ -853,16 +835,19 @@
 
     const makeObjectMarker = (item) => L.marker([item.lat, item.lng], {
         icon: L.divIcon({
-          className: "map-dot",
+          className: `map-dot${selectedListingIds?.has(String(item.id)) ? " selected" : ""}`,
           iconSize: [16, 16],
           iconAnchor: [8, 8]
         })
       }).bindPopup(popupHtml(item));
 
     const makeClusterMarker = (cluster) => {
+      const hasSelected = Boolean(
+        selectedListingIds && cluster.items.some((item) => selectedListingIds.has(String(item.id)))
+      );
       const marker = L.marker([cluster.lat, cluster.lng], {
         icon: L.divIcon({
-          className: "map-cluster",
+          className: `map-cluster${hasSelected ? " selected" : ""}`,
           html: String(cluster.items.length),
           iconSize: [34, 34],
           iconAnchor: [17, 17]
@@ -874,6 +859,12 @@
         });
       });
       return marker;
+    };
+
+    const attachMapFocusButtons = () => {
+      document.querySelectorAll("[data-map-listing]").forEach((button) => {
+        button.addEventListener("click", () => focusListingOnMap(button.dataset.mapListing));
+      });
     };
 
     const focusListingOnMap = (listingId) => {
@@ -943,6 +934,96 @@
       }
     };
 
+    const markSelectedRows = () => {
+      document.querySelectorAll("[data-listing-row]").forEach((row) => {
+        row.classList.toggle(
+          "spatial-selected",
+          Boolean(selectedListingIds?.has(row.dataset.listingRow))
+        );
+      });
+    };
+
+    const setSpatialResult = (data, label) => {
+      listingsBody.innerHTML = data.rows_html;
+      selectedListingIds = new Set(data.listing_ids);
+      resultSummary.innerHTML = data.total > data.limit
+        ? `В области: ${data.total}, показаны первые ${data.limit}`
+        : `В области: ${data.total}, показано ${data.shown}`;
+      selectionSummary.textContent = `${label}: ${data.total}`;
+      resetAreaButton.disabled = false;
+      attachMapFocusButtons();
+      markSelectedRows();
+      scheduleRenderMarkers();
+    };
+
+    const applySpatialFilter = async (payload, label) => {
+      filterBoundsButton.disabled = true;
+      drawAreaButton.disabled = true;
+      selectionSummary.textContent = "Обновляю список...";
+      try {
+        const response = await fetch(`/api/listings/spatial${window.location.search}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        setSpatialResult(await response.json(), label);
+      } catch (error) {
+        selectionSummary.textContent = "Не удалось применить область";
+      } finally {
+        filterBoundsButton.disabled = false;
+        drawAreaButton.disabled = false;
+      }
+    };
+
+    const applyBoundsFilter = () => {
+      const bounds = map.getBounds();
+      void applySpatialFilter({
+        mode: "bounds",
+        north: bounds.getNorth(),
+        south: bounds.getSouth(),
+        east: bounds.getEast(),
+        west: bounds.getWest()
+      }, "В экране");
+    };
+
+    const resetSpatialFilter = () => {
+      listingsBody.innerHTML = initialRowsHtml;
+      resultSummary.innerHTML = initialSummaryHtml;
+      selectionSummary.textContent = "";
+      selectedListingIds = null;
+      resetAreaButton.disabled = true;
+      if (freeDraw) {
+        freeDraw.clear();
+        freeDraw.mode(FreeDraw.NONE);
+      }
+      drawAreaButton.classList.remove("active");
+      attachMapFocusButtons();
+      scheduleRenderMarkers();
+    };
+
+    const setupFreeDraw = () => {
+      if (typeof FreeDraw === "undefined") {
+        drawAreaButton.disabled = true;
+        drawAreaButton.title = "Библиотека рисования не загрузилась";
+        return;
+      }
+      freeDraw = new FreeDraw({ mode: FreeDraw.NONE });
+      map.addLayer(freeDraw);
+      freeDraw.on("markers", (event) => {
+        const polygon = (event.latLngs?.[0] || event.latLngs || [])
+          .map((latlng) => [latlng.lat, latlng.lng]);
+        if (polygon.length < 3) {
+          return;
+        }
+        freeDraw.mode(FreeDraw.NONE);
+        drawAreaButton.classList.remove("active");
+        void applySpatialFilter({ mode: "polygon", polygon }, "В области");
+      });
+    };
+
     let renderQueued = false;
     const scheduleRenderMarkers = () => {
       if (renderQueued) {
@@ -972,13 +1053,24 @@
       scheduleRenderMarkers();
     };
     map.on("moveend zoomend", scheduleRenderMarkers);
-    document.querySelectorAll("[data-map-listing]").forEach((button) => {
-      button.addEventListener("click", () => focusListingOnMap(button.dataset.mapListing));
+    filterBoundsButton.addEventListener("click", applyBoundsFilter);
+    drawAreaButton.addEventListener("click", () => {
+      if (!freeDraw) {
+        return;
+      }
+      freeDraw.clear();
+      freeDraw.mode(FreeDraw.CREATE);
+      drawAreaButton.classList.add("active");
+      selectionSummary.textContent = "Обведите область на карте";
     });
+    resetAreaButton.addEventListener("click", resetSpatialFilter);
+    setupFreeDraw();
+    attachMapFocusButtons();
     requestAnimationFrame(refreshMapSize);
     window.addEventListener("load", refreshMapSize);
     window.addEventListener("resize", refreshMapSize);
     setTimeout(refreshMapSize, 250);
+    })();
   </script>
 </body>
 </html>

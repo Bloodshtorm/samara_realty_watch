@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal, TypedDict
 from urllib.parse import parse_qs, urlencode
 from uuid import UUID
 
@@ -14,8 +15,10 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
+from pydantic import BaseModel, Field
 from sqlalchemy import Select, and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.config import Settings
 from app.db import create_engine, create_session_factory
@@ -32,6 +35,7 @@ from app.models import (
 from app.reporting_format import format_dt, format_m2, format_percent, format_rub
 from services.analytics import (
     ListingHistoryStats,
+    ListingRecommendation,
     build_market_segments,
     listing_history_stats,
     recommend_listing,
@@ -89,6 +93,22 @@ class ListingFilters:
     seen_days: int = 7
     sort: str = "price"
     view: str = "active"
+
+
+class SpatialFilterPayload(BaseModel):
+    mode: Literal["bounds", "polygon"]
+    north: float | None = None
+    south: float | None = None
+    east: float | None = None
+    west: float | None = None
+    polygon: list[tuple[float, float]] = Field(default_factory=list)
+
+
+class TableRowsContext(TypedDict):
+    listings: list[Listing]
+    stats: dict[UUID, ListingHistoryStats]
+    recommendations: dict[UUID, ListingRecommendation]
+    user_states: dict[UUID, ListingUserState]
 
 
 @asynccontextmanager
@@ -228,22 +248,8 @@ async def listings_page(
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
     total = await session.scalar(count_stmt)
     candidate_limit = 500 if filters.sort in {"best", "score_asc"} else PAGE_SIZE
-    listings = list((await session.execute(stmt.limit(candidate_limit))).scalars().all())
-    stats = await listing_history_stats(session, [item.id for item in listings])
-    segments = build_market_segments(
-        await _recent_market_listings(session, filters.seen_days, selected_context)
-    )
-    recommendations = {
-        item.id: recommend_listing(item, stats[item.id], segments.get(segment_key(item)))
-        for item in listings
-    }
-    if filters.sort in {"best", "score_asc"}:
-        listings.sort(
-            key=lambda item: recommendations[item.id].score,
-            reverse=filters.sort == "best",
-        )
-    listings = listings[:PAGE_SIZE]
-    user_states = await _user_states(session, [item.id for item in listings])
+    row_candidates = list((await session.execute(stmt.limit(candidate_limit))).scalars().all())
+    row_context = await _table_rows_context(session, row_candidates, filters, selected_context)
     map_listings = list(
         (await session.execute(stmt.order_by(None).limit(MAP_POINTS_LIMIT))).scalars().all()
     )
@@ -262,10 +268,7 @@ async def listings_page(
         "listings.html",
         {
             "filters": filters,
-            "listings": listings,
-            "stats": stats,
-            "recommendations": recommendations,
-            "user_states": user_states,
+            **row_context,
             "total": total or 0,
             "limit": PAGE_SIZE,
             "districts": districts,
@@ -283,6 +286,36 @@ async def listings_page(
             "context_url": _context_url,
         },
     )
+
+
+@app.post("/api/listings/spatial")
+async def spatial_listings(
+    request: Request,
+    payload: SpatialFilterPayload,
+    filters: ListingFilters = FILTERS_DEP,
+    session: AsyncSession = SESSION_DEP,
+) -> dict[str, object]:
+    contexts = await _contexts(session)
+    selected_context = _selected_context(contexts, filters.context)
+    filters.context = selected_context.slug
+    stmt = _spatial_listings_query(_filtered_listings_query(filters, selected_context), payload)
+    candidates = list((await session.execute(stmt)).scalars().all())
+    if payload.mode == "polygon":
+        candidates = [item for item in candidates if _listing_in_polygon(item, payload.polygon)]
+    total = len(candidates)
+    row_context = await _table_rows_context(session, candidates, filters, selected_context)
+    rows_html = templates.get_template("_listing_rows.html").render(
+        request=request,
+        filters=filters,
+        **row_context,
+    )
+    return {
+        "total": total,
+        "shown": len(row_context["listings"]),
+        "limit": PAGE_SIZE,
+        "listing_ids": [str(item.id) for item in candidates],
+        "rows_html": rows_html,
+    }
 
 
 @app.get("/listings/{listing_id}", response_class=HTMLResponse)
@@ -531,6 +564,118 @@ def _filtered_listings_query(
             return stmt.order_by(Listing.last_seen_at.desc())
         case _:
             return stmt.order_by(Listing.price_rub.asc().nulls_last())
+
+
+async def _table_rows_context(
+    session: AsyncSession,
+    candidates: list[Listing],
+    filters: ListingFilters,
+    context: SearchContext,
+) -> TableRowsContext:
+    candidate_ids = [item.id for item in candidates]
+    candidate_stats = await listing_history_stats(session, candidate_ids)
+    segments = build_market_segments(
+        await _recent_market_listings(session, filters.seen_days, context)
+    )
+    candidate_recommendations = {
+        item.id: recommend_listing(
+            item,
+            candidate_stats[item.id],
+            segments.get(segment_key(item)),
+        )
+        for item in candidates
+    }
+    if filters.sort in {"best", "score_asc"}:
+        candidates.sort(
+            key=lambda item: candidate_recommendations[item.id].score,
+            reverse=filters.sort == "best",
+        )
+    listings = candidates[:PAGE_SIZE]
+    return {
+        "listings": listings,
+        "stats": {item.id: candidate_stats[item.id] for item in listings},
+        "recommendations": {
+            item.id: candidate_recommendations[item.id] for item in listings
+        },
+        "user_states": await _user_states(session, [item.id for item in listings]),
+    }
+
+
+def _spatial_listings_query(
+    stmt: Select[tuple[Listing]],
+    payload: SpatialFilterPayload,
+) -> Select[tuple[Listing]]:
+    conditions: list[ColumnElement[bool]] = [
+        Listing.latitude.is_not(None),
+        Listing.longitude.is_not(None),
+    ]
+    if payload.mode == "bounds":
+        if (
+            payload.north is None
+            or payload.south is None
+            or payload.east is None
+            or payload.west is None
+        ):
+            raise HTTPException(status_code=422, detail="bounds coordinates are required")
+        north = max(payload.north, payload.south)
+        south = min(payload.north, payload.south)
+        east = max(payload.east, payload.west)
+        west = min(payload.east, payload.west)
+    else:
+        if len(payload.polygon) < 3:
+            raise HTTPException(status_code=422, detail="polygon requires at least 3 points")
+        latitudes = [point[0] for point in payload.polygon]
+        longitudes = [point[1] for point in payload.polygon]
+        north = max(latitudes)
+        south = min(latitudes)
+        east = max(longitudes)
+        west = min(longitudes)
+    conditions.extend(
+        [
+            Listing.latitude <= north,
+            Listing.latitude >= south,
+            Listing.longitude <= east,
+            Listing.longitude >= west,
+        ]
+    )
+    return stmt.where(and_(*conditions))
+
+
+def _listing_in_polygon(listing: Listing, polygon: list[tuple[float, float]]) -> bool:
+    if listing.latitude is None or listing.longitude is None:
+        return False
+    return _point_in_polygon(listing.latitude, listing.longitude, polygon)
+
+
+def _point_in_bounds(
+    latitude: float,
+    longitude: float,
+    *,
+    north: float,
+    south: float,
+    east: float,
+    west: float,
+) -> bool:
+    return south <= latitude <= north and west <= longitude <= east
+
+
+def _point_in_polygon(
+    latitude: float,
+    longitude: float,
+    polygon: list[tuple[float, float]],
+) -> bool:
+    inside = False
+    j = len(polygon) - 1
+    for i, point in enumerate(polygon):
+        lat_i, lng_i = point
+        lat_j, lng_j = polygon[j]
+        intersects = (lng_i > longitude) != (lng_j > longitude)
+        if intersects:
+            lat_at_lng = (lat_j - lat_i) * (longitude - lng_i) / (lng_j - lng_i) + lat_i
+            if latitude <= lat_at_lng:
+                inside = not inside
+        j = i
+    return inside
 
 
 def _listing_in_context(context: SearchContext):
