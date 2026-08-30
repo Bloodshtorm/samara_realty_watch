@@ -180,7 +180,114 @@
       background: var(--panel);
       box-shadow: var(--shadow);
     }
-    #map { width: 100%; height: 100%; }
+    #map {
+      width: 100%;
+      height: 100%;
+      min-height: 100%;
+      background: #dce8d5;
+    }
+    .leaflet-container {
+      overflow: hidden;
+      position: relative;
+      outline-style: none;
+      font: inherit;
+    }
+    .leaflet-pane,
+    .leaflet-tile,
+    .leaflet-marker-icon,
+    .leaflet-marker-shadow,
+    .leaflet-tile-container,
+    .leaflet-pane > svg,
+    .leaflet-pane > canvas,
+    .leaflet-zoom-box,
+    .leaflet-image-layer,
+    .leaflet-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+    .leaflet-tile,
+    .leaflet-marker-icon,
+    .leaflet-marker-shadow {
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    .leaflet-tile {
+      width: 256px;
+      height: 256px;
+    }
+    .leaflet-control-container .leaflet-top,
+    .leaflet-control-container .leaflet-bottom {
+      position: absolute;
+      z-index: 1000;
+      pointer-events: none;
+    }
+    .leaflet-top { top: 0; }
+    .leaflet-right { right: 0; }
+    .leaflet-bottom { bottom: 0; }
+    .leaflet-left { left: 0; }
+    .leaflet-control {
+      position: relative;
+      z-index: 800;
+      pointer-events: auto;
+      float: left;
+      clear: both;
+      margin: 10px;
+    }
+    .leaflet-right .leaflet-control { float: right; }
+    .leaflet-control-zoom a {
+      width: 28px;
+      height: 28px;
+      line-height: 28px;
+      display: block;
+      text-align: center;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+      color: var(--text);
+      font-weight: 800;
+    }
+    .leaflet-popup {
+      position: absolute;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .leaflet-popup-content-wrapper {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 3px 14px rgba(0, 0, 0, .24);
+      padding: 1px;
+      text-align: left;
+    }
+    .leaflet-popup-content { margin: 12px; }
+    .leaflet-popup-tip-container {
+      width: 40px;
+      height: 20px;
+      position: absolute;
+      left: 50%;
+      margin-left: -20px;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .leaflet-popup-tip {
+      width: 17px;
+      height: 17px;
+      padding: 1px;
+      margin: -10px auto 0;
+      transform: rotate(45deg);
+      background: #fff;
+      box-shadow: 0 3px 14px rgba(0, 0, 0, .24);
+    }
+    .leaflet-container a.leaflet-popup-close-button {
+      position: absolute;
+      top: 0;
+      right: 0;
+      padding: 4px 4px 0 0;
+      width: 18px;
+      height: 14px;
+      color: #757575;
+      text-align: center;
+      font: 16px/14px Tahoma, Verdana, sans-serif;
+    }
     .map-popup { min-width: 210px; }
     .map-popup strong { display: block; margin-bottom: 4px; }
     .map-popup-actions {
@@ -658,6 +765,11 @@
     if (bounds.length) {
       map.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });
     }
+    const refreshMapSize = () => map.invalidateSize({ animate: false });
+    requestAnimationFrame(refreshMapSize);
+    window.addEventListener("load", refreshMapSize);
+    window.addEventListener("resize", refreshMapSize);
+    setTimeout(refreshMapSize, 250);
   </script>
 </body>
 </html>

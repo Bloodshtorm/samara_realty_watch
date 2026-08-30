@@ -32,7 +32,13 @@ class AvitoCollector(DebugMixin):
                     raise RuntimeError("Avito access is blocked by IP/anti-bot page")
 
                 parsed = (
-                    parsed_from_avito_cards(self.source_name, html, page.url)
+                    parsed_from_avito_cards(
+                        self.source_name,
+                        html,
+                        page.url,
+                        property_type="land" if search.rooms == 0 else "flat",
+                        require_rooms=bool(search.rooms),
+                    )
                     or parsed_from_json_ld(self.source_name, html, page.url)
                     or parsed_from_data_attrs(self.source_name, html)
                 )

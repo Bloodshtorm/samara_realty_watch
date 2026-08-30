@@ -1,0 +1,117 @@
+contexts:
+  - slug: "3rooms_samara"
+    name: "3-комнатные квартиры в Самаре"
+    object_type: "flat"
+    city: "Самара"
+    expected_rooms: 3
+    center_latitude: 53.195873
+    center_longitude: 50.100193
+    radius_km:
+    enabled: true
+    rules:
+      exclude_fractional_shares: true
+      exclude_low_rise_max_floors: 5
+      exclude_settlements: true
+
+  - slug: "land_samara_50km"
+    name: "Дачные участки до 50 км от Самары"
+    object_type: "land"
+    city: "Самара"
+    expected_rooms:
+    center_latitude: 53.195873
+    center_longitude: 50.100193
+    radius_km: 50
+    enabled: true
+    rules:
+      max_distance_km: 50
+
+searches:
+  - name: "yandex_samara_3rooms_main"
+    source: "yandex_realty"
+    context_slug: "3rooms_samara"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "https://realty.yandex.ru/samara/kupit/kvartira/tryohkomnatnaya/"
+    interval_hours: 4
+    max_pages: 10
+
+  - name: "domclick_samara_3rooms_main"
+    source: "domclick"
+    context_slug: "3rooms_samara"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "https://samara.domclick.ru/search?deal_type=sale&category=living&offer_type=flat&rooms=3&address=6369cbfc-1f06-4574-adba-82f4dc42c0f7"
+    interval_hours: 6
+    max_pages: 40
+
+  - name: "cian_samara_3rooms_secondary"
+    source: "cian"
+    context_slug: "3rooms_samara"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "https://samara.cian.ru/cat.php?deal_type=sale&engine_version=2&offer_type=flat&region=4966&room3=1"
+    interval_hours: 6
+    max_pages: 40
+
+  - name: "avito_samara_3rooms_secondary"
+    source: "avito"
+    context_slug: "3rooms_samara"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "https://www.avito.ru/samara/kvartiry/prodam/3-komnatnye-ASgBAgICAUSSA8YQAkDmBxSM"
+    interval_hours: 6
+    max_pages: 100
+
+  - name: "mirkvartir_samara_3rooms_secondary"
+    source: "mirkvartir"
+    context_slug: "3rooms_samara"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "https://www.mirkvartir.ru/Самарская+область/Самара/Трехкомнатные/"
+    interval_hours: 4
+    max_pages: 40
+
+  - name: "n1_samara_3rooms_secondary"
+    source: "n1"
+    context_slug: "3rooms_samara"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "https://samara-1.n1.ru/kupit/kvartiry/rooms-trehkomnatnye/"
+    interval_hours: 6
+    max_pages: 40
+
+  - name: "etagi_samara_3rooms_secondary"
+    source: "etagi"
+    context_slug: "3rooms_samara"
+    enabled: true
+    city: "Самара"
+    rooms: 3
+    url: "https://samara.etagi.com/realty/trehkomnatnye-kvartiry/"
+    interval_hours: 6
+    max_pages: 40
+
+  - name: "avito_samara_land_50km"
+    source: "avito"
+    context_slug: "land_samara_50km"
+    enabled: true
+    city: "Самара"
+    rooms: 0
+    url: "https://www.avito.ru/samara/zemelnye_uchastki"
+    interval_hours: 12
+    max_pages: 40
+
+  - name: "cian_samara_land_50km"
+    source: "cian"
+    context_slug: "land_samara_50km"
+    enabled: true
+    city: "Самара"
+    rooms: 0
+    url: "https://samara.cian.ru/kupit-zemelniy-uchastok/"
+    interval_hours: 12
+    max_pages: 40

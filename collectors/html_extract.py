@@ -228,7 +228,14 @@ def parsed_from_data_attrs(source: str, html: str) -> list[ParsedListing]:
     return result
 
 
-def parsed_from_avito_cards(source: str, html: str, page_url: str) -> list[ParsedListing]:
+def parsed_from_avito_cards(
+    source: str,
+    html: str,
+    page_url: str,
+    *,
+    property_type: str = "flat",
+    require_rooms: bool = True,
+) -> list[ParsedListing]:
     soup = BeautifulSoup(html, "lxml")
     by_id: dict[str, ParsedListing] = {}
     for card in soup.select('[data-marker="item"]'):
@@ -243,7 +250,7 @@ def parsed_from_avito_cards(source: str, html: str, page_url: str) -> list[Parse
         rooms = parse_rooms(title or "")
         area = parse_area_m2(title or "")
         floor, floors_total = parse_floor(title or "")
-        if area is None or rooms is None:
+        if area is None or (require_rooms and rooms is None):
             continue
 
         url = urljoin(page_url, href)
@@ -264,6 +271,7 @@ def parsed_from_avito_cards(source: str, html: str, page_url: str) -> list[Parse
             address_raw=address,
             address_normalized=normalize_address(address),
             district=detect_district(address, description),
+            property_type=property_type,
             seller_type=normalize_seller_type(text),
             rooms=rooms,
             area_total_m2=area,

@@ -46,6 +46,13 @@ def parse_area_m2(value: str | int | float | None) -> float | None:
     if isinstance(value, int | float):
         return float(value)
     text = compact_text(str(value)) or ""
+    sotka_match = re.search(
+        r"(\d+(?:[,.]\d+)?)\s*(?:сот\.?|соток|сотки|сотка)\b",
+        text,
+        re.IGNORECASE,
+    )
+    if sotka_match:
+        return float(sotka_match.group(1).replace(",", ".")) * 100
     match = re.search(r"(\d+(?:[,.]\d+)?)\s*(?:м2|м²|кв\.?\s*м)", text, re.IGNORECASE)
     if not match:
         match = re.search(r"(\d+(?:[,.]\d+)?)", text)
