@@ -11,6 +11,11 @@ async def persistent_context(
     settings: Settings, *, headless: bool | None = None
 ) -> AsyncIterator[BrowserContext]:
     async with async_playwright() as p:
+        if settings.browser_cdp_url:
+            browser = await p.chromium.connect_over_cdp(settings.browser_cdp_url)
+            context = browser.contexts[0] if browser.contexts else await browser.new_context()
+            yield context
+            return
         settings.browser_profile_dir.mkdir(parents=True, exist_ok=True)
         context = await p.chromium.launch_persistent_context(
             user_data_dir=str(settings.browser_profile_dir),

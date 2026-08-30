@@ -33,14 +33,16 @@
       font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     main {
-      width: min(2400px, calc(100% - 48px));
+      width: 100%;
+      max-width: 2400px;
       margin: 0 auto;
-      padding: 24px 0 40px;
+      padding: 24px 24px 40px;
     }
     header {
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
+      flex-wrap: wrap;
       gap: 16px;
       margin-bottom: 14px;
     }
@@ -51,7 +53,8 @@
       align-items: center;
       gap: 8px;
       color: var(--muted);
-      white-space: nowrap;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
     .dot {
       width: 9px;
@@ -147,6 +150,7 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
       gap: 12px;
       margin-bottom: 14px;
     }
@@ -172,6 +176,7 @@
       color: var(--accent);
     }
     .map-panel {
+      position: relative;
       height: 420px;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -179,6 +184,25 @@
       margin-bottom: 16px;
       background: var(--panel);
       box-shadow: var(--shadow);
+    }
+    .map-panel-header {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 650;
+      max-width: min(360px, calc(100% - 92px));
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, .92);
+      box-shadow: 0 6px 18px rgba(15, 23, 42, .14);
+      color: var(--text);
+      font-size: 13px;
+    }
+    .map-panel-header strong {
+      display: block;
+      margin-bottom: 2px;
+      font-size: 14px;
     }
     #map {
       width: 100%;
@@ -206,6 +230,11 @@
       left: 0;
       top: 0;
     }
+    .leaflet-map-pane { z-index: 400; }
+    .leaflet-tile-pane { z-index: 200; }
+    .leaflet-overlay-pane { z-index: 400; }
+    .leaflet-marker-pane { z-index: 600; }
+    .leaflet-popup-pane { z-index: 700; }
     .leaflet-tile,
     .leaflet-marker-icon,
     .leaflet-marker-shadow {
@@ -289,6 +318,14 @@
       font: 16px/14px Tahoma, Verdana, sans-serif;
     }
     .map-popup { min-width: 210px; }
+    .map-dot {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #fff;
+      border-radius: 999px;
+      background: #d97706;
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, .25), 0 2px 8px rgba(15, 23, 42, .32);
+    }
     .map-popup strong { display: block; margin-bottom: 4px; }
     .map-popup-actions {
       display: flex;
@@ -416,12 +453,12 @@
     .warning-list { margin: 6px 0 0; padding-left: 16px; color: var(--warn); }
     .nowrap { white-space: nowrap; }
     @media (max-width: 1100px) {
-      main { width: min(100% - 32px, 1100px); }
+      main { padding-inline: 16px; }
       .dashboard { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
       .filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
     }
     @media (max-width: 700px) {
-      main { width: min(100% - 24px, 700px); padding-top: 16px; }
+      main { padding: 16px 12px 40px; }
       header, .summary, .toolbar, .context-bar { display: block; }
       .status { margin-top: 10px; white-space: normal; }
       .dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -587,6 +624,10 @@
     </div>
 
     <section class="map-panel" aria-label="Карта объектов">
+      <div class="map-panel-header">
+        <strong>{{ selected_context.name }}</strong>
+        На карте: {{ map_points_count }} из {{ listings|length }} показанных
+      </div>
       <div id="map"></div>
     </section>
 
@@ -731,20 +772,26 @@
   ></script>
   <script>
     const points = {{ map_points }};
+    const mapContext = {{ map_context }};
     const escapeHtml = (value) => String(value)
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;");
-    const map = L.map("map", { scrollWheelZoom: false }).setView([53.195873, 50.100193], 11);
+    const mapCenter = [mapContext.lat, mapContext.lng];
+    const map = L.map("map", { scrollWheelZoom: false }).setView(mapCenter, 11);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
-    const bounds = [];
     for (const item of points) {
-      const marker = L.marker([item.lat, item.lng]).addTo(map);
-      bounds.push([item.lat, item.lng]);
+      const marker = L.marker([item.lat, item.lng], {
+        icon: L.divIcon({
+          className: "map-dot",
+          iconSize: [16, 16],
+          iconAnchor: [8, 8]
+        })
+      }).addTo(map);
       marker.bindPopup(`
         <div class="map-popup">
           <strong>${escapeHtml(item.price)}</strong>
@@ -762,8 +809,17 @@
         </div>
       `);
     }
-    if (bounds.length) {
-      map.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });
+    if (mapContext.radiusKm) {
+      const radius = L.circle(mapCenter, {
+        radius: mapContext.radiusKm * 1000,
+        color: "#0f766e",
+        fillColor: "#14b8a6",
+        fillOpacity: 0.08,
+        weight: 2
+      }).addTo(map);
+      map.fitBounds(radius.getBounds(), { padding: [32, 32], maxZoom: 11 });
+    } else {
+      map.setView(mapCenter, 11);
     }
     const refreshMapSize = () => map.invalidateSize({ animate: false });
     requestAnimationFrame(refreshMapSize);

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://realty:change_me@postgres:5432/realty"
     browser_profile_dir: Path = Path("/data/browser-profile")
+    browser_cdp_url: str | None = None
     browser_channel: str | None = None
     headless: bool = True
     timezone: str = "Europe/Samara"

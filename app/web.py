@@ -250,6 +250,7 @@ async def listings_page(
         )
     ).scalar_one_or_none()
 
+    map_points = _map_points(listings, user_states)
     return templates.TemplateResponse(
         request,
         "listings.html",
@@ -266,9 +267,9 @@ async def listings_page(
             "last_run": last_run,
             "contexts": contexts,
             "selected_context": selected_context,
-            "map_points": Markup(
-                json.dumps(_map_points(listings, user_states), ensure_ascii=False)
-            ),
+            "map_points": Markup(json.dumps(map_points, ensure_ascii=False)),
+            "map_points_count": len(map_points),
+            "map_context": Markup(json.dumps(_map_context(selected_context), ensure_ascii=False)),
             "sort_url": _sort_url,
             "view_url": _view_url,
             "context_url": _context_url,
@@ -605,6 +606,15 @@ def _map_points(
             }
         )
     return points
+
+
+def _map_context(context: SearchContext) -> dict[str, object]:
+    return {
+        "lat": context.center_latitude or 53.195873,
+        "lng": context.center_longitude or 50.100193,
+        "radiusKm": context.radius_km,
+        "objectType": context.object_type,
+    }
 
 
 def _price_timeline(observations: list[ListingObservation]) -> dict[str, object] | None:
