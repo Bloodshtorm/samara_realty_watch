@@ -40,6 +40,7 @@ from services.analytics import (
 from services.search_contexts import sync_contexts_from_config
 
 PAGE_SIZE = 100
+MAP_POINTS_LIMIT = 5_000
 SORT_VALUES = (
     "price",
     "price_desc",
@@ -56,6 +57,7 @@ SORT_VALUES = (
 )
 VIEW_VALUES = ("active", "favorites", "hidden")
 MORTGAGE_VALUES = ("", "available")
+SOURCE_CHOICES = ("avito", "cian", "domclick", "etagi", "mirkvartir", "n1", "yandex_realty")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["rub"] = format_rub
 templates.env.filters["m2"] = format_m2
@@ -242,6 +244,10 @@ async def listings_page(
         )
     listings = listings[:PAGE_SIZE]
     user_states = await _user_states(session, [item.id for item in listings])
+    map_listings = list(
+        (await session.execute(stmt.order_by(None).limit(MAP_POINTS_LIMIT))).scalars().all()
+    )
+    map_user_states = await _user_states(session, [item.id for item in map_listings])
     districts = (await session.execute(_distinct_values(Listing.district))).scalars().all()
     sources = (await session.execute(_distinct_values(Listing.source))).scalars().all()
     last_run = (
@@ -250,7 +256,7 @@ async def listings_page(
         )
     ).scalar_one_or_none()
 
-    map_points = _map_points(listings, user_states)
+    map_points = _map_points(map_listings, map_user_states)
     return templates.TemplateResponse(
         request,
         "listings.html",
@@ -269,6 +275,8 @@ async def listings_page(
             "selected_context": selected_context,
             "map_points": Markup(json.dumps(map_points, ensure_ascii=False)),
             "map_points_count": len(map_points),
+            "map_source_count": len(map_listings),
+            "map_points_limit": MAP_POINTS_LIMIT,
             "map_context": Markup(json.dumps(_map_context(selected_context), ensure_ascii=False)),
             "sort_url": _sort_url,
             "view_url": _view_url,
@@ -331,7 +339,7 @@ async def new_context_page(request: Request) -> HTMLResponse:
         request,
         "context_form.html",
         {
-            "sources": ("avito", "cian", "domclick", "yandex_realty"),
+            "sources": SOURCE_CHOICES,
             "defaults": {
                 "object_type": "flat",
                 "city": "Самара",
@@ -710,7 +718,7 @@ def _slugify(value: str) -> str:
 def _generated_search_url(source: str, object_type: str, rooms: int | None) -> str | None:
     if object_type == "land":
         urls = {
-            "avito": "https://www.avito.ru/samara/zemelnye_uchastki/prodam-ASgBAgICAUSWA9AQAUDmBxSM",
+            "avito": "https://www.avito.ru/samara/zemelnye_uchastki",
             "cian": "https://samara.cian.ru/kupit-zemelniy-uchastok/",
         }
         return urls.get(source)
@@ -722,8 +730,20 @@ def _generated_search_url(source: str, object_type: str, rooms: int | None) -> s
             "https://samara.cian.ru/cat.php?deal_type=sale&engine_version=2"
             f"&offer_type=flat&region=4966&{room_param}"
         )
-    if source == "yandex_realty" and rooms == 3:
-        return "https://realty.yandex.ru/samara/kupit/kvartira/tryohkomnatnaya/"
+    if source == "domclick":
+        return (
+            "https://samara.domclick.ru/search?deal_type=sale&category=living"
+            f"&offer_type=flat&rooms={rooms}&address=6369cbfc-1f06-4574-adba-82f4dc42c0f7"
+        )
+    if rooms == 3:
+        urls = {
+            "avito": "https://www.avito.ru/samara/kvartiry/prodam/3-komnatnye-ASgBAgICAUSSA8YQAkDmBxSM",
+            "etagi": "https://samara.etagi.com/realty/trehkomnatnye-kvartiry/",
+            "mirkvartir": "https://www.mirkvartir.ru/Самарская+область/Самара/Трехкомнатные/",
+            "n1": "https://samara-1.n1.ru/kupit/kvartiry/rooms-trehkomnatnye/",
+            "yandex_realty": "https://realty.yandex.ru/samara/kupit/kvartira/tryohkomnatnaya/",
+        }
+        return urls.get(source)
     return None
 
 

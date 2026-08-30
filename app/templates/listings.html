@@ -626,7 +626,10 @@
     <section class="map-panel" aria-label="Карта объектов">
       <div class="map-panel-header">
         <strong>{{ selected_context.name }}</strong>
-        На карте: {{ map_points_count }} из {{ listings|length }} показанных
+        На карте: {{ map_points_count }} из {{ total }} найденных
+        {% if map_source_count >= map_points_limit and total > map_points_limit %}
+          <br>Ограничение карты: {{ map_points_limit }}
+        {% endif %}
       </div>
       <div id="map"></div>
     </section>

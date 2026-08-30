@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from app.web import parse_filters
+from app.web import SOURCE_CHOICES, _generated_search_url, parse_filters
 
 
 def test_parse_filters_treats_empty_form_values_as_none() -> None:
@@ -132,3 +132,24 @@ def test_parse_filters_accepts_mortgage_filter() -> None:
     )
 
     assert filters.mortgage == "available"
+
+
+def test_context_form_source_choices_include_all_collectors() -> None:
+    assert SOURCE_CHOICES == (
+        "avito",
+        "cian",
+        "domclick",
+        "etagi",
+        "mirkvartir",
+        "n1",
+        "yandex_realty",
+    )
+
+
+def test_generated_3rooms_urls_cover_all_source_choices() -> None:
+    urls = {
+        source: _generated_search_url(source, "flat", 3)
+        for source in SOURCE_CHOICES
+    }
+
+    assert all(urls.values())
