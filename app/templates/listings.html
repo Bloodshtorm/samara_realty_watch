@@ -99,6 +99,12 @@
       margin-bottom: 16px;
       box-shadow: var(--shadow);
     }
+    .filter-shell { margin-bottom: 0; }
+    .filter-toggle {
+      display: none;
+      cursor: pointer;
+      user-select: none;
+    }
     label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
     input, select {
       width: 100%;
@@ -530,23 +536,151 @@
     }
     @media (max-width: 700px) {
       main { padding: 16px 12px 40px; }
+      body { font-size: 13px; }
+      main { overflow-x: hidden; }
       header, .summary, .toolbar, .context-bar { display: block; }
+      h1 { font-size: 24px; }
       .status { margin-top: 10px; white-space: normal; }
-      .dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .dashboard {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .stat-card { padding: 9px 10px; }
+      .stat-value { font-size: 20px; }
+      .filter-shell {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      .filter-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 11px 12px;
+        color: var(--text);
+        font-weight: 800;
+      }
+      .filter-toggle::after {
+        content: "Развернуть";
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .filter-shell[open] .filter-toggle::after { content: "Свернуть"; }
       .filters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .filter-shell .filters {
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-radius: 0;
+        box-shadow: none;
+        margin-bottom: 0;
+        padding: 12px;
+      }
+      .filters label { min-width: 0; }
       .actions { grid-column: 1 / -1; }
       .actions button, .actions .button { flex: 1; }
       .views { margin-top: 8px; }
-      .context-tabs { margin-bottom: 8px; }
-      .map-panel { height: 340px; }
+      .context-tabs {
+        margin-bottom: 8px;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+      .map-panel {
+        height: 360px;
+        margin-inline: -4px;
+      }
       .map-actions {
-        top: 52px;
+        top: 48px;
         left: 12px;
         right: 12px;
         max-width: none;
       }
+      .map-actions button {
+        flex: 1 1 130px;
+        min-width: 0;
+      }
+      .map-selection-summary {
+        flex: 1 0 100%;
+      }
       .map-panel-header {
-        max-width: min(300px, calc(100% - 24px));
+        top: 8px;
+        right: 8px;
+        left: 52px;
+        max-width: none;
+        padding: 6px 8px;
+      }
+      .table-wrap {
+        overflow: visible;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+      table {
+        min-width: 0;
+        table-layout: auto;
+      }
+      thead { display: none; }
+      table, tbody, tr, td { display: block; width: 100%; }
+      tbody tr {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 10px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+      tbody tr:nth-child(even) td,
+      tbody tr:hover td,
+      tbody tr td {
+        background: var(--panel);
+      }
+      tbody tr.spatial-selected td { background: #eefaf7; }
+      td {
+        display: grid;
+        grid-template-columns: 104px minmax(0, 1fr);
+        gap: 10px;
+        padding: 8px 10px;
+        border-bottom: 1px solid #edf0f5;
+      }
+      td::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+      }
+      td.empty::before { content: none; }
+      td.addr,
+      td.recommendation-col,
+      td.stats-col,
+      td.action-col {
+        width: 100%;
+      }
+      td.addr {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      td.addr::before {
+        content: attr(data-label);
+      }
+      .recommendation-col,
+      .stats-col,
+      .source-col,
+      .date-col,
+      .action-col {
+        width: auto;
+        min-width: 0;
+      }
+      .reason-list,
+      .warning-list {
+        margin-top: 5px;
+      }
+      .row-actions {
+        justify-content: flex-start;
       }
     }
   </style>
@@ -599,91 +733,94 @@
       </div>
     </section>
 
-    <form class="filters" method="get">
-      <input type="hidden" name="context" value="{{ filters.context }}">
-      <input type="hidden" name="sort" value="{{ filters.sort }}">
-      <input type="hidden" name="view" value="{{ filters.view }}">
-      <label>Цена от
-        <input name="price_min" type="number" min="0" value="{{ filters.price_min or '' }}">
-      </label>
-      <label>Цена до
-        <input name="price_max" type="number" min="0" value="{{ filters.price_max or '' }}">
-      </label>
-      <label>₽/м² до
-        <input name="price_m2_max" type="number" min="0" value="{{ filters.price_m2_max or '' }}">
-      </label>
-      <label>Площадь от
-        <input name="area_min" type="number" min="0" step="0.1" value="{{ filters.area_min or '' }}">
-      </label>
-      <label>Площадь до
-        <input name="area_max" type="number" min="0" step="0.1" value="{{ filters.area_max or '' }}">
-      </label>
-      <label>Этаж от
-        <input name="floor_min" type="number" min="0" value="{{ filters.floor_min or '' }}">
-      </label>
-      <label>Этаж до
-        <input name="floor_max" type="number" min="0" value="{{ filters.floor_max or '' }}">
-      </label>
-      <label>Этажей в доме до
-        <input
-          name="floors_total_max"
-          type="number"
-          min="0"
-          value="{{ filters.floors_total_max or '' }}"
-        >
-      </label>
-      <label>Район
-        <select name="district">
-          <option value="">Любой</option>
-          {% for district in districts %}
-            <option value="{{ district }}" {% if filters.district == district %}selected{% endif %}>
-              {{ district }}
+    <details class="filter-shell" open>
+      <summary class="filter-toggle">Фильтры</summary>
+      <form class="filters" method="get">
+        <input type="hidden" name="context" value="{{ filters.context }}">
+        <input type="hidden" name="sort" value="{{ filters.sort }}">
+        <input type="hidden" name="view" value="{{ filters.view }}">
+        <label>Цена от
+          <input name="price_min" type="number" min="0" value="{{ filters.price_min or '' }}">
+        </label>
+        <label>Цена до
+          <input name="price_max" type="number" min="0" value="{{ filters.price_max or '' }}">
+        </label>
+        <label>₽/м² до
+          <input name="price_m2_max" type="number" min="0" value="{{ filters.price_m2_max or '' }}">
+        </label>
+        <label>Площадь от
+          <input name="area_min" type="number" min="0" step="0.1" value="{{ filters.area_min or '' }}">
+        </label>
+        <label>Площадь до
+          <input name="area_max" type="number" min="0" step="0.1" value="{{ filters.area_max or '' }}">
+        </label>
+        <label>Этаж от
+          <input name="floor_min" type="number" min="0" value="{{ filters.floor_min or '' }}">
+        </label>
+        <label>Этаж до
+          <input name="floor_max" type="number" min="0" value="{{ filters.floor_max or '' }}">
+        </label>
+        <label>Этажей в доме до
+          <input
+            name="floors_total_max"
+            type="number"
+            min="0"
+            value="{{ filters.floors_total_max or '' }}"
+          >
+        </label>
+        <label>Район
+          <select name="district">
+            <option value="">Любой</option>
+            {% for district in districts %}
+              <option value="{{ district }}" {% if filters.district == district %}selected{% endif %}>
+                {{ district }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Источник
+          <select name="source">
+            <option value="">Любой</option>
+            {% for source in sources %}
+              <option value="{{ source }}" {% if filters.source == source %}selected{% endif %}>
+                {{ source }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Ипотека
+          <select name="mortgage">
+            <option value="" {% if not filters.mortgage %}selected{% endif %}>Не важно</option>
+            <option value="available" {% if filters.mortgage == "available" %}selected{% endif %}>
+              Доступна
             </option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Источник
-        <select name="source">
-          <option value="">Любой</option>
-          {% for source in sources %}
-            <option value="{{ source }}" {% if filters.source == source %}selected{% endif %}>
-              {{ source }}
-            </option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Ипотека
-        <select name="mortgage">
-          <option value="" {% if not filters.mortgage %}selected{% endif %}>Не важно</option>
-          <option value="available" {% if filters.mortgage == "available" %}selected{% endif %}>
-            Доступна
-          </option>
-        </select>
-      </label>
-      <label>Изменения за
-        <select name="changed_days">
-          <option value="">Не важно</option>
-          {% for days in [1, 7, 14, 30, 90] %}
-            <option value="{{ days }}" {% if filters.changed_days == days %}selected{% endif %}>
-              {{ days }} дн.
-            </option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Видели за
-        <select name="seen_days">
-          {% for days in [1, 7, 14, 30, 90, 365] %}
-            <option value="{{ days }}" {% if filters.seen_days == days %}selected{% endif %}>
-              {{ days }} дн.
-            </option>
-          {% endfor %}
-        </select>
-      </label>
-      <div class="actions">
-        <button type="submit">Фильтровать</button>
-        <a class="button secondary" href="/">Сбросить</a>
-      </div>
-    </form>
+          </select>
+        </label>
+        <label>Изменения за
+          <select name="changed_days">
+            <option value="">Не важно</option>
+            {% for days in [1, 7, 14, 30, 90] %}
+              <option value="{{ days }}" {% if filters.changed_days == days %}selected{% endif %}>
+                {{ days }} дн.
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Видели за
+          <select name="seen_days">
+            {% for days in [1, 7, 14, 30, 90, 365] %}
+              <option value="{{ days }}" {% if filters.seen_days == days %}selected{% endif %}>
+                {{ days }} дн.
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="actions">
+          <button type="submit">Фильтровать</button>
+          <a class="button secondary" href="/">Сбросить</a>
+        </div>
+      </form>
+    </details>
 
     <div class="toolbar">
       <div class="summary" id="list-summary">
@@ -795,6 +932,10 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;");
     const mapCenter = [mapContext.lat, mapContext.lng];
+    const filterShell = document.querySelector(".filter-shell");
+    if (filterShell && window.matchMedia("(max-width: 700px)").matches) {
+      filterShell.removeAttribute("open");
+    }
     const map = L.map("map", { scrollWheelZoom: false }).setView(mapCenter, 11);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,

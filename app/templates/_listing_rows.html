@@ -4,10 +4,10 @@
   {% set user_state = user_states.get(item.id) %}
   {% set delta_class = "down" if (item_stats.total_change_rub or 0) < 0 else "up" %}
   <tr data-listing-row="{{ item.id }}">
-    <td class="num">{{ item.price_rub|rub }}</td>
-    <td class="num">{{ item.price_per_m2|rub }}</td>
-    <td class="num">{{ item.area_total_m2|m2 }}</td>
-    <td class="num">
+    <td class="num" data-label="Цена">{{ item.price_rub|rub }}</td>
+    <td class="num" data-label="₽/м²">{{ item.price_per_m2|rub }}</td>
+    <td class="num" data-label="Площадь">{{ item.area_total_m2|m2 }}</td>
+    <td class="num" data-label="Этаж">
       {% if item.floor and item.floors_total %}
         {{ item.floor }}/{{ item.floors_total }}
       {% elif item.floor %}
@@ -16,13 +16,13 @@
         -
       {% endif %}
     </td>
-    <td class="addr">
+    <td class="addr" data-label="Адрес">
       <a class="row-link" href="/listings/{{ item.id }}">
         {{ item.address_normalized or item.address_raw or item.title or "-" }}
       </a>
     </td>
-    <td>{{ item.district or "-" }}</td>
-    <td class="recommendation-col">
+    <td data-label="Район">{{ item.district or "-" }}</td>
+    <td class="recommendation-col" data-label="Рекомендация">
       <span class="score">{{ recommendation.score }}</span>
       {% if recommendation.reasons %}
         <ul class="reason-list">
@@ -39,17 +39,17 @@
         </ul>
       {% endif %}
     </td>
-    <td class="num stats-col">
+    <td class="num stats-col" data-label="Статистика">
       {{ item_stats.observations_count }} набл. · {{ item_stats.price_changes_count }} изм.<br>
       мин {{ item_stats.min_price_rub|rub }} · макс {{ item_stats.max_price_rub|rub }}<br>
       <span class="{{ delta_class }}">
         {{ item_stats.total_change_rub|rub }} · {{ item_stats.total_change_percent|percent }}
       </span>
     </td>
-    <td class="source-col"><span class="badge">{{ item.source }}</span></td>
-    <td class="num date-col">{{ item.first_seen_at|dt }}</td>
-    <td class="num date-col">{{ item.last_seen_at|dt }}</td>
-    <td class="action-col">
+    <td class="source-col" data-label="Источник"><span class="badge">{{ item.source }}</span></td>
+    <td class="num date-col" data-label="Первый раз">{{ item.first_seen_at|dt }}</td>
+    <td class="num date-col" data-label="Последний раз">{{ item.last_seen_at|dt }}</td>
+    <td class="action-col" data-label="Действия">
       <div class="row-actions">
         <a class="button secondary small" href="/listings/{{ item.id }}">Карточка</a>
         <button
