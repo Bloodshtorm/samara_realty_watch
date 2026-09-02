@@ -429,7 +429,7 @@
     }
     table {
       width: 100%;
-      min-width: 1600px;
+      min-width: 1680px;
       border-collapse: separate;
       border-spacing: 0;
       table-layout: fixed;
@@ -464,8 +464,8 @@
     .source-col { width: 120px; }
     .date-col { width: 132px; }
     .action-col {
-      width: 180px;
-      min-width: 180px;
+      width: 260px;
+      min-width: 260px;
       background: var(--panel);
     }
     th.action-col {
@@ -589,14 +589,19 @@
         padding-bottom: 2px;
       }
       .map-panel {
-        height: 360px;
+        height: auto;
         margin-inline: -4px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }
       .map-actions {
-        top: 48px;
-        left: 12px;
-        right: 12px;
+        position: static;
+        order: 3;
         max-width: none;
+        border-width: 1px 0 0;
+        border-radius: 0;
+        box-shadow: none;
       }
       .map-actions button {
         flex: 1 1 130px;
@@ -606,11 +611,18 @@
         flex: 1 0 100%;
       }
       .map-panel-header {
-        top: 8px;
-        right: 8px;
-        left: 52px;
+        position: static;
+        order: 1;
         max-width: none;
+        border-width: 0 0 1px;
+        border-radius: 0;
+        box-shadow: none;
         padding: 6px 8px;
+      }
+      #map {
+        order: 2;
+        height: 360px;
+        min-height: 360px;
       }
       .table-wrap {
         overflow: visible;

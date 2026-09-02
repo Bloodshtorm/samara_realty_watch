@@ -52,6 +52,13 @@
     <td class="action-col" data-label="Действия">
       <div class="row-actions">
         <a class="button secondary small" href="/listings/{{ item.id }}">Карточка</a>
+        <a
+          class="button secondary small"
+          href="{{ item.url }}"
+          target="_blank"
+          rel="noreferrer"
+          title="Открыть объявление на сайте источника"
+        >Источник</a>
         <button
           class="icon-button map-focus"
           type="button"
