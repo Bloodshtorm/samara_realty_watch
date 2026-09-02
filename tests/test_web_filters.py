@@ -1,11 +1,15 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from fastapi import HTTPException
 
+from app.models import CollectorRun
 from app.web import (
     SOURCE_CHOICES,
     _generated_search_url,
     _point_in_bounds,
     _point_in_polygon,
+    _run_duration,
     parse_filters,
 )
 
@@ -203,3 +207,15 @@ def test_point_in_polygon_rejects_points_outside_area() -> None:
     ]
 
     assert not _point_in_polygon(53.24, 50.10, polygon)
+
+
+def test_run_duration_formats_finished_and_running_runs() -> None:
+    started_at = datetime(2026, 9, 2, 9, 30, tzinfo=UTC)
+
+    assert _run_duration(CollectorRun(started_at=started_at, finished_at=None)) == "идет"
+    assert (
+        _run_duration(
+            CollectorRun(started_at=started_at, finished_at=started_at + timedelta(seconds=75))
+        )
+        == "1 мин 15 сек"
+    )

@@ -111,6 +111,12 @@ class TableRowsContext(TypedDict):
     user_states: dict[UUID, ListingUserState]
 
 
+class CollectorRunView(TypedDict):
+    run: CollectorRun
+    search_name: str
+    duration_label: str
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = Settings()
@@ -316,6 +322,36 @@ async def spatial_listings(
         "listing_ids": [str(item.id) for item in candidates],
         "rows_html": rows_html,
     }
+
+
+@app.get("/runs", response_class=HTMLResponse)
+async def collector_runs_page(
+    request: Request,
+    session: AsyncSession = SESSION_DEP,
+) -> HTMLResponse:
+    rows = (
+        await session.execute(
+            select(CollectorRun, Search)
+            .outerjoin(Search, Search.id == CollectorRun.search_id)
+            .order_by(CollectorRun.started_at.desc())
+            .limit(200)
+        )
+    ).all()
+    runs: list[CollectorRunView] = [
+        {
+            "run": run,
+            "search_name": search.name if search is not None else "-",
+            "duration_label": _run_duration(run),
+        }
+        for run, search in rows
+    ]
+    return templates.TemplateResponse(
+        request,
+        "collector_runs.html",
+        {
+            "runs": runs,
+        },
+    )
 
 
 @app.get("/listings/{listing_id}", response_class=HTMLResponse)
@@ -730,6 +766,19 @@ def _context_url(request: Request, context_slug: str) -> str:
     params = dict(request.query_params)
     params["context"] = context_slug
     return f"?{urlencode(params)}"
+
+
+def _run_duration(run: CollectorRun) -> str:
+    if run.finished_at is None:
+        return "идет"
+    seconds = max(int((run.finished_at - run.started_at).total_seconds()), 0)
+    minutes, rest_seconds = divmod(seconds, 60)
+    hours, rest_minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours} ч {rest_minutes} мин"
+    if minutes:
+        return f"{minutes} мин {rest_seconds} сек"
+    return f"{rest_seconds} сек"
 
 
 def _map_points(
