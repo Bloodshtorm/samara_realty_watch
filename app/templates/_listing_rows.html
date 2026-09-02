@@ -3,6 +3,8 @@
   {% set recommendation = recommendations[item.id] %}
   {% set user_state = user_states.get(item.id) %}
   {% set delta_class = "down" if (item_stats.total_change_rub or 0) < 0 else "up" %}
+  {% set display_address = item.address_normalized or item.address_raw %}
+  {% set display_title = item.title if item.title and item.title != display_address else none %}
   <tr data-listing-row="{{ item.id }}">
     <td class="num" data-label="Цена">{{ item.price_rub|rub }}</td>
     <td class="num" data-label="₽/м²">{{ item.price_per_m2|rub }}</td>
@@ -17,9 +19,13 @@
       {% endif %}
     </td>
     <td class="addr" data-label="Адрес">
-      <a class="row-link" href="/listings/{{ item.id }}">
-        {{ item.address_normalized or item.address_raw or item.title or "-" }}
-      </a>
+      <a class="row-link" href="/listings/{{ item.id }}">{{ display_address or "Адрес не найден" }}</a>
+      {% if display_title %}
+        <div class="listing-title">
+          <span>Заголовок</span>
+          {{ display_title }}
+        </div>
+      {% endif %}
     </td>
     <td data-label="Район">{{ item.district or "-" }}</td>
     <td class="recommendation-col" data-label="Рекомендация">

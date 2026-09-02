@@ -429,7 +429,7 @@
     }
     table {
       width: 100%;
-      min-width: 1680px;
+      min-width: 0;
       border-collapse: separate;
       border-spacing: 0;
       table-layout: fixed;
@@ -457,15 +457,30 @@
     tr:last-child td { border-bottom: 0; }
     a { color: var(--accent); text-decoration: none; font-weight: 700; }
     .row-link { color: var(--text); font-weight: 600; }
+    .listing-title {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .listing-title span {
+      display: block;
+      margin-bottom: 2px;
+      color: #8a94a6;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
     .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .addr { width: 300px; }
+    .addr { width: 260px; }
     .recommendation-col { width: 220px; }
     .stats-col { width: 230px; }
     .source-col { width: 120px; }
     .date-col { width: 132px; }
     .action-col {
-      width: 260px;
-      min-width: 260px;
+      width: 240px;
+      min-width: 240px;
       background: var(--panel);
     }
     th.action-col {
@@ -533,6 +548,16 @@
       main { padding-inline: 16px; }
       .dashboard { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
       .filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
+    }
+    @media (max-width: 1400px) {
+      .date-col { display: none; }
+      .addr { width: 240px; }
+      .recommendation-col { width: 210px; }
+      .stats-col { width: 220px; }
+      .action-col {
+        width: 230px;
+        min-width: 230px;
+      }
     }
     @media (max-width: 700px) {
       main { padding: 16px 12px 40px; }
@@ -897,7 +922,7 @@
                 href="{{ sort_url(request, 'floor_desc' if filters.sort == 'floor' else 'floor') }}"
               >Этаж{% if filters.sort == 'floor' %}↑{% elif filters.sort == 'floor_desc' %}↓{% endif %}</a>
             </th>
-            <th>Адрес / заголовок</th>
+            <th>Адрес</th>
             <th>Район</th>
             <th class="recommendation-col">
               <a
@@ -919,7 +944,7 @@
                 href="{{ sort_url(request, 'last_seen') }}"
               >Последний раз{% if filters.sort == 'last_seen' %}↓{% endif %}</a>
             </th>
-            <th class="action-col">Детали</th>
+            <th class="action-col">Действия</th>
           </tr>
         </thead>
         <tbody id="listings-body">
