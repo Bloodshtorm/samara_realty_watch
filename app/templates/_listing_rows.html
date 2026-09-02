@@ -5,27 +5,24 @@
   {% set delta_class = "down" if (item_stats.total_change_rub or 0) < 0 else "up" %}
   {% set display_address = item.address_normalized or item.address_raw %}
   {% set display_title = item.title or "Заголовок не найден" %}
+  {% set floor_label %}
+    {% if item.floor and item.floors_total %}
+      {{ item.floor }}/{{ item.floors_total }}
+    {% elif item.floor %}
+      {{ item.floor }}
+    {% else %}
+      -
+    {% endif %}
+  {% endset %}
   <tr data-listing-row="{{ item.id }}">
     <td class="num" data-label="Цена">{{ item.price_rub|rub }}</td>
     <td class="num" data-label="₽/м²">{{ item.price_per_m2|rub }}</td>
     <td class="num" data-label="Площадь">{{ item.area_total_m2|m2 }}</td>
-    <td class="num" data-label="Этаж">
-      {% if item.floor and item.floors_total %}
-        {{ item.floor }}/{{ item.floors_total }}
-      {% elif item.floor %}
-        {{ item.floor }}
-      {% else %}
-        -
-      {% endif %}
-    </td>
+    <td class="num" data-label="Этаж">{{ floor_label|trim }}</td>
     <td class="listing-copy-col" data-label="Заголовок / описание">
-      <a class="row-link" href="/listings/{{ item.id }}">{{ display_title }}</a>
-      {% if item.description %}
-        <details class="listing-description">
-          <summary>Описание</summary>
-          <div>{{ item.description }}</div>
-        </details>
-      {% endif %}
+      <button class="row-link-button card-open" type="button" data-card-listing="{{ item.id }}">
+        {{ display_title }}
+      </button>
     </td>
     <td class="location-col" data-label="Район / адрес">
       <div>{{ item.district or "Район не найден" }}</div>
@@ -60,7 +57,7 @@
     <td class="num date-col" data-label="Последний раз">{{ item.last_seen_at|dt }}</td>
     <td class="action-col" data-label="Действия">
       <div class="row-actions">
-        <a class="button secondary small" href="/listings/{{ item.id }}">Карточка</a>
+        <button class="button secondary small card-open" type="button" data-card-listing="{{ item.id }}">Карточка</button>
         <a
           class="button secondary small"
           href="{{ item.url }}"
@@ -98,6 +95,47 @@
           >{{ '↩' if filters.view == 'hidden' else '×' }}</button>
         </form>
       </div>
+      <template data-card-template="{{ item.id }}">
+        <article class="listing-card">
+          <header class="listing-card-header">
+            <div>
+              <div class="listing-card-source">{{ item.source }}</div>
+              <h2>{{ display_title }}</h2>
+            </div>
+            <button class="modal-close" type="button" data-modal-close aria-label="Закрыть">×</button>
+          </header>
+          <section class="listing-card-metrics" aria-label="Параметры">
+            <div><span>Цена</span><strong>{{ item.price_rub|rub }}</strong></div>
+            <div><span>₽/м²</span><strong>{{ item.price_per_m2|rub }}</strong></div>
+            <div><span>Площадь</span><strong>{{ item.area_total_m2|m2 }}</strong></div>
+            <div><span>Этаж</span><strong>{{ floor_label|trim }}</strong></div>
+            <div><span>Рекомендация</span><strong>{{ recommendation.score }}</strong></div>
+          </section>
+          <dl class="listing-card-location">
+            <dt>Район</dt>
+            <dd>{{ item.district or "Район не найден" }}</dd>
+            <dt>Адрес</dt>
+            <dd>{{ display_address or "Адрес не найден" }}</dd>
+          </dl>
+          {% if item.description %}
+            <details class="listing-card-description" open>
+              <summary>Описание</summary>
+              <div>{{ item.description }}</div>
+            </details>
+          {% else %}
+            <div class="listing-card-empty">Описание не найдено.</div>
+          {% endif %}
+          <section class="listing-card-stats" aria-label="Статистика">
+            <div>{{ item_stats.observations_count }} набл. · {{ item_stats.price_changes_count }} изм.</div>
+            <div>мин {{ item_stats.min_price_rub|rub }} · макс {{ item_stats.max_price_rub|rub }}</div>
+            <div class="{{ delta_class }}">{{ item_stats.total_change_rub|rub }} · {{ item_stats.total_change_percent|percent }}</div>
+          </section>
+          <footer class="listing-card-actions">
+            <a class="button" href="{{ item.url }}" target="_blank" rel="noreferrer">Источник</a>
+            <a class="button secondary" href="/listings/{{ item.id }}">Страница</a>
+          </footer>
+        </article>
+      </template>
     </td>
   </tr>
 {% else %}

@@ -465,22 +465,20 @@
     tr:last-child td { border-bottom: 0; }
     a { color: var(--accent); text-decoration: none; font-weight: 700; }
     .row-link { color: var(--text); font-weight: 600; }
-    .listing-description {
-      margin-top: 8px;
-      color: var(--muted);
-      font-size: 12px;
+    .row-link-button {
+      display: inline;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-weight: 700;
       line-height: 1.35;
-    }
-    .listing-description summary {
+      text-align: left;
       cursor: pointer;
-      color: #8a94a6;
-      font-weight: 800;
     }
-    .listing-description div {
-      margin-top: 6px;
-      max-height: 170px;
-      overflow: auto;
-      white-space: pre-wrap;
+    .row-link-button:hover {
+      color: var(--accent);
     }
     .location-address {
       margin-top: 6px;
@@ -561,6 +559,130 @@
     .reason-list li { margin: 2px 0; }
     .warning-list { margin: 6px 0 0; padding-left: 16px; color: var(--warn); }
     .nowrap { white-space: nowrap; }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 22px;
+      background: rgba(15, 23, 42, .48);
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-dialog {
+      width: min(760px, 100%);
+      max-height: min(820px, calc(100vh - 44px));
+      overflow: auto;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 24px 80px rgba(15, 23, 42, .28);
+    }
+    .listing-card { padding: 18px; }
+    .listing-card-header {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .listing-card-header h2 {
+      margin: 4px 0 0;
+      font-size: 22px;
+      line-height: 1.25;
+    }
+    .listing-card-source {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      color: var(--muted);
+      font-size: 12px;
+      background: #fff;
+    }
+    .modal-close {
+      width: 34px;
+      height: 34px;
+      flex: 0 0 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .listing-card-metrics {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .listing-card-metrics div {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      background: #f8fafc;
+    }
+    .listing-card-metrics span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+    .listing-card-metrics strong {
+      display: block;
+      margin-top: 3px;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+    .listing-card-location {
+      display: grid;
+      grid-template-columns: 110px minmax(0, 1fr);
+      gap: 7px 12px;
+      margin: 0 0 14px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+    .listing-card-location dt { color: var(--muted); font-weight: 800; }
+    .listing-card-location dd { margin: 0; }
+    .listing-card-description {
+      margin-bottom: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .listing-card-description summary {
+      cursor: pointer;
+      color: var(--accent);
+      font-weight: 800;
+    }
+    .listing-card-description div {
+      margin-top: 10px;
+      max-height: 320px;
+      overflow: auto;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+    .listing-card-empty {
+      margin-bottom: 14px;
+      color: var(--muted);
+    }
+    .listing-card-stats {
+      display: grid;
+      gap: 4px;
+      margin-bottom: 14px;
+      color: var(--muted);
+    }
+    .listing-card-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
     @media (max-width: 1100px) {
       main { padding-inline: 16px; }
       .dashboard { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
@@ -739,6 +861,29 @@
       }
       .row-actions {
         justify-content: flex-start;
+      }
+      .modal-backdrop {
+        align-items: flex-end;
+        padding: 0;
+      }
+      .modal-dialog {
+        width: 100%;
+        max-height: 92vh;
+        border-radius: 8px 8px 0 0;
+      }
+      .listing-card { padding: 14px 12px 18px; }
+      .listing-card-header h2 { font-size: 18px; }
+      .listing-card-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .listing-card-location {
+        grid-template-columns: 1fr;
+      }
+      .listing-card-actions {
+        justify-content: stretch;
+      }
+      .listing-card-actions .button {
+        flex: 1;
       }
     }
   </style>
@@ -974,6 +1119,11 @@
       </table>
     </div>
   </main>
+  <div class="modal-backdrop" id="listing-card-modal" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-label="Карточка объявления">
+      <div id="listing-card-content"></div>
+    </div>
+  </div>
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
@@ -1009,6 +1159,8 @@
     const filterBoundsButton = document.getElementById("map-filter-bounds");
     const drawAreaButton = document.getElementById("map-draw-area");
     const resetAreaButton = document.getElementById("map-reset-area");
+    const cardModal = document.getElementById("listing-card-modal");
+    const cardContent = document.getElementById("listing-card-content");
     const initialRowsHtml = listingsBody.innerHTML;
     const initialSummaryHtml = resultSummary.innerHTML;
     let selectedListingIds = null;
@@ -1063,6 +1215,32 @@
     const attachMapFocusButtons = () => {
       document.querySelectorAll("[data-map-listing]").forEach((button) => {
         button.addEventListener("click", () => focusListingOnMap(button.dataset.mapListing));
+      });
+    };
+
+    const closeListingCard = () => {
+      cardModal.classList.remove("open");
+      cardModal.setAttribute("aria-hidden", "true");
+      cardContent.innerHTML = "";
+      document.body.style.overflow = "";
+    };
+
+    const openListingCard = (listingId) => {
+      const template = document.querySelector(`[data-card-template="${CSS.escape(String(listingId))}"]`);
+      if (!template) {
+        window.location.href = `/listings/${listingId}`;
+        return;
+      }
+      cardContent.innerHTML = template.innerHTML;
+      cardModal.classList.add("open");
+      cardModal.setAttribute("aria-hidden", "false");
+      document.body.style.overflow = "hidden";
+      cardContent.querySelector("[data-modal-close]")?.focus();
+    };
+
+    const attachCardButtons = () => {
+      document.querySelectorAll("[data-card-listing]").forEach((button) => {
+        button.addEventListener("click", () => openListingCard(button.dataset.cardListing));
       });
     };
 
@@ -1151,6 +1329,7 @@
       selectionSummary.textContent = `${label}: ${data.total}`;
       resetAreaButton.disabled = false;
       attachMapFocusButtons();
+      attachCardButtons();
       markSelectedRows();
       scheduleRenderMarkers();
     };
@@ -1200,6 +1379,7 @@
       }
       drawAreaButton.classList.remove("active");
       attachMapFocusButtons();
+      attachCardButtons();
       scheduleRenderMarkers();
     };
 
@@ -1265,6 +1445,17 @@
     resetAreaButton.addEventListener("click", resetSpatialFilter);
     setupFreeDraw();
     attachMapFocusButtons();
+    attachCardButtons();
+    cardModal.addEventListener("click", (event) => {
+      if (event.target === cardModal || event.target.closest("[data-modal-close]")) {
+        closeListingCard();
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && cardModal.classList.contains("open")) {
+        closeListingCard();
+      }
+    });
     requestAnimationFrame(refreshMapSize);
     window.addEventListener("load", refreshMapSize);
     window.addEventListener("resize", refreshMapSize);
