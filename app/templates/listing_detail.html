@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ listing.address_normalized or listing.title or "Объявление" }}</title>
+  <title>{{ listing.title or listing.address_normalized or "Объявление" }}</title>
   <style>
     :root {
       --bg: #f4f6f8;
@@ -35,6 +35,22 @@
     h2 { margin: 24px 0 10px; font-size: 18px; }
     .muted { color: var(--muted); }
     .header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .description-details {
+      margin-top: 12px;
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+      color: var(--text);
+    }
+    .description-details summary {
+      cursor: pointer;
+      color: var(--accent);
+      font-weight: 800;
+    }
+    .description-body {
+      margin-top: 10px;
+      white-space: pre-wrap;
+      color: var(--text);
+    }
     .button {
       min-height: 34px;
       border: 1px solid var(--accent);
@@ -144,7 +160,7 @@
   <main>
     <header>
       <a href="/">← Все объявления</a>
-      <h1>{{ listing.address_normalized or listing.address_raw or listing.title or "Объявление" }}</h1>
+      <h1>{{ listing.title or "Объявление" }}</h1>
       <div class="muted">{{ listing.source }} · {{ listing.first_seen_at|dt }} → {{ listing.last_seen_at|dt }}</div>
       <div class="header-actions">
         <form method="post" action="/listings/{{ listing.id }}/state?action={{ 'unfavorite' if user_state and user_state.is_favorite else 'favorite' }}">
@@ -210,12 +226,18 @@
 
     <section class="panel">
       <dl>
-        <dt>Заголовок</dt><dd>{{ listing.title or "-" }}</dd>
         <dt>Район</dt><dd>{{ listing.district or "-" }}</dd>
+        <dt>Адрес</dt><dd>{{ listing.address_normalized or listing.address_raw or "-" }}</dd>
         <dt>Тип продавца</dt><dd>{{ listing.seller_type or "-" }}</dd>
         <dt>Ссылка</dt><dd><a href="{{ listing.url }}" target="_blank" rel="noreferrer">Открыть источник</a></dd>
         <dt>ID источника</dt><dd>{{ listing.source_listing_id }}</dd>
       </dl>
+      {% if listing.description %}
+        <details class="description-details">
+          <summary>Описание</summary>
+          <div class="description-body">{{ listing.description }}</div>
+        </details>
+      {% endif %}
     </section>
 
     <h2>Рекомендация</h2>

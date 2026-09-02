@@ -465,23 +465,32 @@
     tr:last-child td { border-bottom: 0; }
     a { color: var(--accent); text-decoration: none; font-weight: 700; }
     .row-link { color: var(--text); font-weight: 600; }
-    .listing-title {
+    .listing-description {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .listing-description summary {
+      cursor: pointer;
+      color: #8a94a6;
+      font-weight: 800;
+    }
+    .listing-description div {
+      margin-top: 6px;
+      max-height: 170px;
+      overflow: auto;
+      white-space: pre-wrap;
+    }
+    .location-address {
       margin-top: 6px;
       color: var(--muted);
       font-size: 12px;
       line-height: 1.35;
     }
-    .listing-title span {
-      display: block;
-      margin-bottom: 2px;
-      color: #8a94a6;
-      font-size: 10px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: .03em;
-    }
     .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .addr { width: 260px; }
+    .listing-copy-col { width: 270px; }
+    .location-col { width: 170px; }
     .recommendation-col { width: 220px; }
     .stats-col { width: 230px; }
     .source-col { width: 120px; }
@@ -559,7 +568,8 @@
     }
     @media (max-width: 1400px) {
       .date-col { display: none; }
-      .addr { width: 240px; }
+      .listing-copy-col { width: 260px; }
+      .location-col { width: 170px; }
       .recommendation-col { width: 210px; }
       .stats-col { width: 220px; }
       .action-col {
@@ -699,17 +709,20 @@
         letter-spacing: .03em;
       }
       td.empty::before { content: none; }
-      td.addr,
+      td.listing-copy-col,
+      td.location-col,
       td.recommendation-col,
       td.stats-col,
       td.action-col {
         width: 100%;
       }
-      td.addr {
+      td.listing-copy-col,
+      td.location-col {
         grid-template-columns: 1fr;
         gap: 4px;
       }
-      td.addr::before {
+      td.listing-copy-col::before,
+      td.location-col::before {
         content: attr(data-label);
       }
       .recommendation-col,
@@ -930,8 +943,8 @@
                 href="{{ sort_url(request, 'floor_desc' if filters.sort == 'floor' else 'floor') }}"
               >Этаж{% if filters.sort == 'floor' %}↑{% elif filters.sort == 'floor_desc' %}↓{% endif %}</a>
             </th>
-            <th>Адрес</th>
-            <th>Район</th>
+            <th>Заголовок / описание</th>
+            <th>Район / адрес</th>
             <th class="recommendation-col">
               <a
                 class="th-sort{% if filters.sort in ['best', 'score_asc'] %} active{% endif %}"

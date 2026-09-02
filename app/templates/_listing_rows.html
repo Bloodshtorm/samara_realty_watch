@@ -4,7 +4,7 @@
   {% set user_state = user_states.get(item.id) %}
   {% set delta_class = "down" if (item_stats.total_change_rub or 0) < 0 else "up" %}
   {% set display_address = item.address_normalized or item.address_raw %}
-  {% set display_title = item.title if item.title and item.title != display_address else none %}
+  {% set display_title = item.title or "Заголовок не найден" %}
   <tr data-listing-row="{{ item.id }}">
     <td class="num" data-label="Цена">{{ item.price_rub|rub }}</td>
     <td class="num" data-label="₽/м²">{{ item.price_per_m2|rub }}</td>
@@ -18,16 +18,19 @@
         -
       {% endif %}
     </td>
-    <td class="addr" data-label="Адрес">
-      <a class="row-link" href="/listings/{{ item.id }}">{{ display_address or "Адрес не найден" }}</a>
-      {% if display_title %}
-        <div class="listing-title">
-          <span>Заголовок</span>
-          {{ display_title }}
-        </div>
+    <td class="listing-copy-col" data-label="Заголовок / описание">
+      <a class="row-link" href="/listings/{{ item.id }}">{{ display_title }}</a>
+      {% if item.description %}
+        <details class="listing-description">
+          <summary>Описание</summary>
+          <div>{{ item.description }}</div>
+        </details>
       {% endif %}
     </td>
-    <td data-label="Район">{{ item.district or "-" }}</td>
+    <td class="location-col" data-label="Район / адрес">
+      <div>{{ item.district or "Район не найден" }}</div>
+      <div class="location-address">{{ display_address or "Адрес не найден" }}</div>
+    </td>
     <td class="recommendation-col" data-label="Рекомендация">
       <span class="score">{{ recommendation.score }}</span>
       {% if recommendation.reasons %}
