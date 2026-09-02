@@ -114,7 +114,17 @@ searches:
     rooms: 0
     url: "https://www.avito.ru/samara/doma_dachi_kottedzhi/prodam/dachi-ASgBAgICAUSUA9AQ"
     interval_hours: 12
-    max_pages: 40
+    max_pages: 100
+
+  - name: "avito_samara_dacha_watch_8250141503"
+    source: "avito"
+    context_slug: "land_samara_50km"
+    enabled: true
+    city: "Самара"
+    rooms: 0
+    url: "https://www.avito.ru/samara/doma_dachi_kottedzhi/dacha_191_m_na_uchastke_7_sot._8250141503"
+    interval_hours: 12
+    max_pages: 1
 
   - name: "cian_samara_land_50km"
     source: "cian"

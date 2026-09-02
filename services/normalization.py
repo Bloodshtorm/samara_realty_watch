@@ -190,6 +190,12 @@ def normalize_address(value: str | None) -> str | None:
 
 def detect_district(*texts: str | None) -> str | None:
     combined = " ".join(t for t in (compact_text(x) for x in texts) if t).lower()
+    explicit_match = re.search(r"\bр-н\s+([а-я-]+)", combined)
+    if explicit_match:
+        district_name = explicit_match.group(1)
+        for district, markers in SAMARA_DISTRICTS.items():
+            if any(marker in district_name for marker in markers):
+                return district
     for district, markers in SAMARA_DISTRICTS.items():
         if any(marker in combined for marker in markers):
             return district

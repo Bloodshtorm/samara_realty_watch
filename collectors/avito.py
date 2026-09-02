@@ -9,6 +9,7 @@ from app.schemas import ParsedListing
 from collectors.debug import DebugMixin
 from collectors.html_extract import (
     parsed_from_avito_cards,
+    parsed_from_avito_detail,
     parsed_from_data_attrs,
     parsed_from_json_ld,
 )
@@ -38,6 +39,12 @@ class AvitoCollector(DebugMixin):
                         page.url,
                         property_type="land" if search.rooms == 0 else "flat",
                         require_rooms=bool(search.rooms),
+                    )
+                    or parsed_from_avito_detail(
+                        self.source_name,
+                        html,
+                        page.url,
+                        property_type="land" if search.rooms == 0 else "flat",
                     )
                     or parsed_from_json_ld(self.source_name, html, page.url)
                     or parsed_from_data_attrs(self.source_name, html)

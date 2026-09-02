@@ -78,6 +78,7 @@ class WebState:
 @dataclass
 class ListingFilters:
     context: str = "3rooms_samara"
+    q: str | None = None
     price_min: int | None = None
     price_max: int | None = None
     price_m2_max: int | None = None
@@ -139,6 +140,7 @@ app = FastAPI(title="Samara Realty Watch", lifespan=lifespan)
 
 def parse_filters(
     context: str = Query(default="3rooms_samara"),
+    q: str | None = Query(default=None),
     price_min: str | None = Query(default=None),
     price_max: str | None = Query(default=None),
     price_m2_max: str | None = Query(default=None),
@@ -162,11 +164,13 @@ def parse_filters(
     view: str = Query(default="active", pattern="^(active|favorites|hidden)$"),
 ) -> ListingFilters:
     context_value = _optional_text(context) or "3rooms_samara"
+    q_value = _optional_text(q)
     district_value = _optional_text(district)
     source_value = _optional_text(source)
     mortgage_value = _optional_text(mortgage) or ""
     return ListingFilters(
         context=context_value,
+        q=q_value,
         price_min=_optional_int("price_min", price_min, minimum=0),
         price_max=_optional_int("price_max", price_max, minimum=0),
         price_m2_max=_optional_int("price_m2_max", price_m2_max, minimum=0),
@@ -519,6 +523,30 @@ def _filtered_listings_query(
     ]
     if context.expected_rooms is not None:
         conditions.append(Listing.rooms == context.expected_rooms)
+    if filters.q:
+        text_queries = {
+            filters.q,
+            filters.q.lower(),
+            filters.q.upper(),
+            filters.q.capitalize(),
+        }
+        columns = (
+            Listing.title,
+            Listing.description,
+            Listing.address_raw,
+            Listing.address_normalized,
+            Listing.source_listing_id,
+            Listing.url,
+        )
+        conditions.append(
+            or_(
+                *[
+                    column.like(f"%{query}%")
+                    for column in columns
+                    for query in text_queries
+                ],
+            )
+        )
     if filters.price_min is not None:
         conditions.append(Listing.price_rub >= filters.price_min)
     if filters.price_max is not None:

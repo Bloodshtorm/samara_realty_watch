@@ -17,6 +17,7 @@ from app.web import (
 def test_parse_filters_treats_empty_form_values_as_none() -> None:
     filters = parse_filters(
         context="3rooms_samara",
+        q="",
         price_min="",
         price_max="",
         price_m2_max="",
@@ -35,6 +36,7 @@ def test_parse_filters_treats_empty_form_values_as_none() -> None:
     assert filters.price_min is None
     assert filters.area_min is None
     assert filters.changed_days is None
+    assert filters.q is None
     assert filters.source == "mirkvartir"
     assert filters.seen_days == 7
     assert filters.context == "3rooms_samara"
@@ -43,6 +45,7 @@ def test_parse_filters_treats_empty_form_values_as_none() -> None:
 def test_parse_filters_parses_numeric_values() -> None:
     filters = parse_filters(
         context="land_samara_50km",
+        q=None,
         price_min="5000000",
         price_max=None,
         price_m2_max=None,
@@ -64,6 +67,28 @@ def test_parse_filters_parses_numeric_values() -> None:
     assert filters.context == "land_samara_50km"
 
 
+def test_parse_filters_keeps_text_query() -> None:
+    filters = parse_filters(
+        context="land_samara_50km",
+        q=" Дача 191 ",
+        price_min="",
+        price_max="",
+        price_m2_max="",
+        area_min="",
+        area_max="",
+        floor_min="",
+        floor_max="",
+        floors_total_max="",
+        district="",
+        source="",
+        changed_days="",
+        seen_days="7",
+        sort="price",
+    )
+
+    assert filters.q == "Дача 191"
+
+
 def test_parse_filters_rejects_invalid_numeric_values() -> None:
     with pytest.raises(HTTPException):
         parse_filters(price_min="wrong")
@@ -82,6 +107,7 @@ def test_parse_filters_accepts_sort_directions() -> None:
         filters = parse_filters(
             price_min="",
             context="3rooms_samara",
+            q="",
             price_max="",
             price_m2_max="",
             area_min="",
@@ -104,6 +130,7 @@ def test_parse_filters_accepts_list_views() -> None:
         filters = parse_filters(
             price_min="",
             context="3rooms_samara",
+            q="",
             price_max="",
             price_m2_max="",
             area_min="",
@@ -124,6 +151,7 @@ def test_parse_filters_accepts_list_views() -> None:
 def test_parse_filters_accepts_mortgage_filter() -> None:
     filters = parse_filters(
         context="3rooms_samara",
+        q="",
         price_min="",
         price_max="",
         price_m2_max="",

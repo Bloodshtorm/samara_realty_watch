@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from html import unescape
 from typing import Any
 from urllib.parse import urljoin
 
@@ -286,6 +287,67 @@ def parsed_from_avito_cards(
     return list(by_id.values())
 
 
+def parsed_from_avito_detail(
+    source: str,
+    html: str,
+    page_url: str,
+    *,
+    property_type: str = "flat",
+) -> list[ParsedListing]:
+    soup = BeautifulSoup(html, "lxml")
+    title = compact_text(
+        _node_text(soup.select_one('[data-marker="item-view/title-info"]'))
+        or _meta_content(soup, "og:image:alt")
+        or _meta_content(soup, "og:title")
+    )
+    if not title:
+        return []
+
+    page_text = compact_text(soup.get_text(" ", strip=True)) or ""
+    price = parse_price_rub(_meta_property_content(soup, "product:price:amount") or page_text)
+    area = parse_area_m2(title)
+    if area is None:
+        area = parse_area_m2(page_text)
+    if price is None or area is None:
+        return []
+
+    description = compact_text(
+        _meta_content(soup, "description") or _meta_content(soup, "og:description")
+    )
+    address = _avito_detail_address(page_text)
+    latitude, longitude = _avito_detail_coordinates(html)
+    canonical_url = canonicalize_url(page_url)
+    source_id = _avito_id_from_url(canonical_url) or stable_listing_id(source, canonical_url)
+    floor, floors_total = parse_floor(" ".join(x for x in (title, page_text) if x))
+    text = " ".join(x for x in (title, description, address, page_text) if x)
+
+    return [
+        ParsedListing(
+            source=source,
+            source_listing_id=source_id,
+            url=page_url,
+            canonical_url=canonical_url,
+            title=title,
+            address_raw=address,
+            address_normalized=normalize_address(address),
+            district=detect_district(address, description, page_text),
+            property_type=property_type,
+            seller_type=normalize_seller_type(text),
+            rooms=parse_rooms(text),
+            area_total_m2=area,
+            price_rub=price,
+            price_per_m2=calc_price_per_m2(price, area),
+            floor=floor,
+            floors_total=floors_total,
+            latitude=latitude,
+            longitude=longitude,
+            description=description,
+            raw_payload={"page_url": page_url},
+            features=extract_features(text),
+        )
+    ]
+
+
 def parsed_from_mirkvartir_cards(source: str, html: str, page_url: str) -> list[ParsedListing]:
     soup = BeautifulSoup(html, "lxml")
     by_id: dict[str, ParsedListing] = {}
@@ -363,6 +425,41 @@ def _avito_description(text: str) -> str | None:
         maxsplit=1,
     )
     return compact_text(parts[0])
+
+
+def _avito_detail_address(text: str) -> str | None:
+    match = re.search(r"Расположение\s+(.+?)\s+Скрыть карту", text)
+    if match:
+        return compact_text(match.group(1))
+    match = re.search(r"(Самарская обл\.,\s*Самара.+?)(?:\s+Описание|\s+Показать)", text)
+    return compact_text(match.group(1)) if match else None
+
+
+def _avito_detail_coordinates(html_text: str) -> tuple[float | None, float | None]:
+    decoded = unescape(html_text)
+    lat_match = re.search(r'(?:\\"|")latitude(?:\\"|")\s*:\s*([0-9.]+)', decoded)
+    lng_match = re.search(r'(?:\\"|")longitude(?:\\"|")\s*:\s*([0-9.]+)', decoded)
+    if not lat_match or not lng_match:
+        return None, None
+    return float(lat_match.group(1)), float(lng_match.group(1))
+
+
+def _meta_content(soup: BeautifulSoup, name: str) -> str | None:
+    node = soup.select_one(f'meta[name="{name}"][content]')
+    if node is None:
+        node = soup.select_one(f'meta[property="{name}"][content]')
+    return compact_text(_attr_str(node.get("content")) if node else None)
+
+
+def _meta_property_content(soup: BeautifulSoup, name: str) -> str | None:
+    node = soup.select_one(f'meta[property="{name}"][content]')
+    return compact_text(_attr_str(node.get("content")) if node else None)
+
+
+def _node_text(node) -> str | None:
+    if node is None:
+        return None
+    return compact_text(node.get_text(" ", strip=True))
 
 
 def parsed_from_cian_state(source: str, html: str, page_url: str) -> list[ParsedListing]:

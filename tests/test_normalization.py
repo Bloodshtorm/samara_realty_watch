@@ -1,5 +1,6 @@
 from services.normalization import (
     calc_price_per_m2,
+    detect_district,
     is_fractional_share_listing,
     is_low_rise_building,
     is_outside_samara_city_listing,
@@ -54,6 +55,16 @@ def test_detect_outside_samara_city_listings() -> None:
     assert is_outside_samara_city_listing("Самара, поселок Мехзавод")
     assert not is_outside_samara_city_listing("Самара, Ново-Садовая улица, 10")
     assert not is_outside_samara_city_listing("улица Советской Армии, 242")
+
+
+def test_detect_district_prefers_explicit_address_district() -> None:
+    assert (
+        detect_district(
+            "Самара, СНТ Ракитовские Дачи-1, 20-я ул., 10 р-н Красноглинский",
+            "рядом железнодорожная станция",
+        )
+        == "красноглинский"
+    )
 
 
 def test_detect_low_rise_buildings() -> None:
