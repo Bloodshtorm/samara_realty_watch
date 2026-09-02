@@ -35,3 +35,32 @@ def test_avito_land_cards_do_not_require_rooms() -> None:
     assert listings[0].property_type == "land"
     assert listings[0].rooms is None
     assert listings[0].area_total_m2 == 1000
+
+
+def test_avito_dacha_cards_fit_land_context() -> None:
+    html = """
+    <div data-marker="item">
+      <a
+        data-marker="item-title"
+        href="/samara/doma_dachi_kottedzhi/dacha_191_m_na_uchastke_7_sot._8250141503"
+      >
+        Дача 191 м² на участке 7 сот.
+      </a>
+      <span>1 200 000 ₽</span>
+      <span>Самара, Красноглинский район</span>
+    </div>
+    """
+
+    listings = parsed_from_avito_cards(
+        "avito",
+        html,
+        "https://www.avito.ru/samara/doma_dachi_kottedzhi/prodam/dachi-ASgBAgICAUSUA9AQ",
+        property_type="land",
+        require_rooms=False,
+    )
+
+    assert len(listings) == 1
+    assert listings[0].source_listing_id == "8250141503"
+    assert listings[0].property_type == "land"
+    assert listings[0].rooms is None
+    assert listings[0].area_total_m2 == 700
