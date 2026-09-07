@@ -2,6 +2,7 @@
   {% set item_stats = stats[item.id] %}
   {% set recommendation = recommendations[item.id] %}
   {% set user_state = user_states.get(item.id) %}
+  {% set apartment = apartments.get(item.id) %}
   {% set delta_class = "down" if (item_stats.total_change_rub or 0) < 0 else "up" %}
   {% set display_address = item.address_normalized or item.address_raw %}
   {% set display_title = item.title or "Заголовок не найден" %}
@@ -14,15 +15,17 @@
       -
     {% endif %}
   {% endset %}
-  <tr data-listing-row="{{ item.id }}">
-    <td class="num" data-label="Цена">{{ item.price_rub|rub }}</td>
+  <tr data-listing-row="{{ item.group_id or item.id }}">
+    <td class="num" data-label="Цена">{{ apartment.price }}</td>
     <td class="num" data-label="₽/м²">{{ item.price_per_m2|rub }}</td>
-    <td class="num" data-label="Площадь">{{ item.area_total_m2|m2 }}</td>
+    <td class="num" data-label="Площадь">{{ apartment.area }}</td>
     <td class="num" data-label="Этаж">{{ floor_label|trim }}</td>
     <td class="listing-copy-col" data-label="Заголовок / описание">
-      <button class="row-link-button card-open" type="button" data-card-listing="{{ item.id }}">
+      {% if item.group_id %}
+      <a class="row-link-button" href="{{ apartment.url }}">{{ item.rooms }}-комн. квартира · {{ apartment.area }}</a>
+      {% else %}<button class="row-link-button card-open" type="button" data-card-listing="{{ item.id }}">
         {{ display_title }}
-      </button>
+      </button>{% endif %}
     </td>
     <td class="location-col" data-label="Район / адрес">
       <div>{{ item.district or "Район не найден" }}</div>
@@ -52,12 +55,13 @@
         {{ item_stats.total_change_rub|rub }} · {{ item_stats.total_change_percent|percent }}
       </span>
     </td>
-    <td class="source-col" data-label="Источник"><span class="badge">{{ item.source }}</span></td>
+    <td class="source-col" data-label="Источники"><span class="badge" title="{{ apartment.source_label }}">{% if apartment.source_count > 1 %}{{ apartment.source_count }} площадки{% else %}{{ item.source }}{% endif %}</span></td>
     <td class="num date-col" data-label="Первый раз">{{ item.first_seen_at|dt }}</td>
     <td class="num date-col" data-label="Последний раз">{{ item.last_seen_at|dt }}</td>
     <td class="action-col" data-label="Действия">
       <div class="row-actions">
-        <button class="button secondary small card-open" type="button" data-card-listing="{{ item.id }}">Карточка</button>
+        {% if item.group_id %}<a class="button secondary small" href="{{ apartment.url }}">Карточка</a>
+        {% else %}<button class="button secondary small card-open" type="button" data-card-listing="{{ item.id }}">Карточка</button>{% endif %}
         <a
           class="button secondary small"
           href="{{ item.url }}"
@@ -68,8 +72,8 @@
         <button
           class="icon-button map-focus"
           type="button"
-          {% if item.latitude is not none and item.longitude is not none %}
-            data-map-listing="{{ item.id }}"
+          {% if apartment.latitude is not none and apartment.longitude is not none %}
+            data-map-listing="{{ item.group_id or item.id }}"
             title="Показать на карте"
             aria-label="Показать на карте"
           {% else %}

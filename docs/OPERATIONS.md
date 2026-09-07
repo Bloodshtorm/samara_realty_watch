@@ -112,6 +112,35 @@ Then deploy from git on `lan-dev` using the normal deploy section. Avoid direct 
 
 ## Collector Commands
 
+### Apartment Groups
+
+Migration `0004_apartment_groups` adds groups without replacing source listings or history.
+Back up SQLite and stop the web service and collector timer/service before upgrading.
+The existing LAN SQLite schema predates Alembic tracking: if `alembic_version` is absent,
+verify all existing tables/columns against the pre-group models, then stamp
+`0003_search_contexts`. Never stamp an unknown or empty database. Then run:
+
+```bash
+.venv/bin/python -m alembic upgrade head
+.venv/bin/python -m app listing duplicates
+.venv/bin/python -m app listing duplicates --apply
+```
+
+The command without `--apply` previews suggested groups without writing. It also works
+before migration, using reflected listing columns. The preview is a fresh algorithmic
+estimate, not a replay of manual decisions; `--apply` always respects saved rejections.
+After successful collections, reconciliation runs automatically. It uses building/nearby
+coordinate buckets and requires a complete match across every member before auto-merging.
+Long generic descriptions are insufficient: text confirmation additionally requires
+diverse text and apartment-specific measurements or an agency object reference.
+
+`/duplicates` contains candidates and rejected pairs. `/apartments/<id>` compares source
+values and price histories. Manual separation rejects every crossing pair; recollection
+does not undo it. Price changes preserve membership; address/floor conflicts flag a group
+for review and prevent adding more members automatically. Apartment flags apply across
+sources; splitting inherits them. Existing `/listings/<id>` URLs remain source-specific.
+No new image downloads, image blobs, or duplicated payload snapshots are introduced.
+
 ### MVP Storage Policy
 
 - Keep full source JSON only on the current listing, not in observation history.

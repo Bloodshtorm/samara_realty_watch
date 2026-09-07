@@ -1,0 +1,38 @@
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f4f6f8; color: #19202a; font: 14px/1.5 system-ui, sans-serif; letter-spacing: 0; }
+  main { max-width: 1280px; margin: auto; padding: 24px; }
+  nav, .actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  nav { margin-bottom: 24px; }
+  a { color: #0f766e; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1 { font-size: 25px; margin: 12px 0; overflow-wrap: anywhere; }
+  h2 { font-size: 18px; margin: 24px 0 12px; }
+  .muted { color: #657080; }
+  .metrics { display: flex; gap: 32px; flex-wrap: wrap; margin: 20px 0; }
+  .metrics strong { display: block; font-size: 22px; }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; text-align: left; }
+  th, td { padding: 10px; border-bottom: 1px solid #d9dee7; vertical-align: top; }
+  th { color: #657080; font-size: 12px; }
+  form { display: inline-block; margin: 0; }
+  button, .command { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid #0f766e; border-radius: 6px; background: white; color: #0f766e; cursor: pointer; font: inherit; min-height: 36px; }
+  button svg { width: 16px; height: 16px; }
+  .warning { color: #9b3b12; border-left: 3px solid #c8501b; padding: 10px 14px; background: #fff4eb; }
+  .pair { border-top: 1px solid #d9dee7; padding: 20px 0; }
+  .comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+  .comparison p { overflow-wrap: anywhere; }
+  details { margin: 12px 0; }
+  summary { cursor: pointer; }
+  .description { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .nowrap { white-space: nowrap; }
+  @media (max-width: 640px) {
+    main { padding: 16px; } h1 { font-size: 21px; }
+    .comparison { grid-template-columns: 1fr; gap: 8px; }
+    .metrics { gap: 16px; } .metrics strong { font-size: 18px; }
+    .sources-table thead { display: none; }
+    .sources-table tr { display: block; padding: 12px 0; border-bottom: 1px solid #d9dee7; }
+    .sources-table td { display: flex; justify-content: space-between; gap: 12px; border: 0; padding: 5px 0; overflow-wrap: anywhere; }
+    .sources-table td::before { content: attr(data-label); color: #657080; flex-shrink: 0; }
+  }
+</style>

@@ -161,6 +161,7 @@
     <header>
       <a href="/">← Все объявления</a>
       <h1>{{ listing.title or "Объявление" }}</h1>
+      {% if listing.group_id %}<a href="/apartments/{{ listing.group_id }}">Квартира на всех площадках</a>{% endif %}
       <div class="muted">{{ listing.source }} · {{ listing.first_seen_at|dt }} → {{ listing.last_seen_at|dt }}</div>
       <div class="header-actions">
         <form method="post" action="/listings/{{ listing.id }}/state?action={{ 'unfavorite' if user_state and user_state.is_favorite else 'favorite' }}">

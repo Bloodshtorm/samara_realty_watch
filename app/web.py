@@ -18,14 +18,17 @@ from markupsafe import Markup
 from pydantic import BaseModel, Field
 from sqlalchemy import Select, and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased, defer
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.config import Settings
 from app.db import create_engine, create_session_factory
 from app.models import (
+    ApartmentGroup,
     Base,
     CollectorRun,
     Listing,
+    ListingLink,
     ListingObservation,
     ListingUserState,
     PriceHistory,
@@ -41,6 +44,7 @@ from services.analytics import (
     recommend_listing,
     segment_key,
 )
+from services.apartments import confirm_link, group_members, split_member
 from services.search_contexts import sync_contexts_from_config
 
 PAGE_SIZE = 100
@@ -110,6 +114,7 @@ class TableRowsContext(TypedDict):
     stats: dict[UUID, ListingHistoryStats]
     recommendations: dict[UUID, ListingRecommendation]
     user_states: dict[UUID, ListingUserState]
+    apartments: dict[UUID, dict]
 
 
 class CollectorRunView(TypedDict):
@@ -255,14 +260,10 @@ async def listings_page(
     selected_context = _selected_context(contexts, filters.context)
     filters.context = selected_context.slug
     stmt = _filtered_listings_query(filters, selected_context)
-    count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
-    total = await session.scalar(count_stmt)
-    candidate_limit = 500 if filters.sort in {"best", "score_asc"} else PAGE_SIZE
-    row_candidates = list((await session.execute(stmt.limit(candidate_limit))).scalars().all())
+    row_candidates = unique_apartments(list((await session.scalars(stmt)).all()))
+    total = len(row_candidates)
     row_context = await _table_rows_context(session, row_candidates, filters, selected_context)
-    map_listings = list(
-        (await session.execute(stmt.order_by(None).limit(MAP_POINTS_LIMIT))).scalars().all()
-    )
+    map_listings = row_candidates[:MAP_POINTS_LIMIT]
     map_user_states = await _user_states(session, [item.id for item in map_listings])
     districts = (await session.execute(_distinct_values(Listing.district))).scalars().all()
     sources = (await session.execute(_distinct_values(Listing.source))).scalars().all()
@@ -272,7 +273,9 @@ async def listings_page(
         )
     ).scalar_one_or_none()
 
-    map_points = _map_points(map_listings, map_user_states)
+    map_points = _map_points(
+        map_listings, map_user_states, await _apartment_summaries(session, map_listings)
+    )
     return templates.TemplateResponse(
         request,
         "listings.html",
@@ -312,6 +315,7 @@ async def spatial_listings(
     candidates = list((await session.execute(stmt)).scalars().all())
     if payload.mode == "polygon":
         candidates = [item for item in candidates if _listing_in_polygon(item, payload.polygon)]
+    candidates = unique_apartments(candidates)
     total = len(candidates)
     row_context = await _table_rows_context(session, candidates, filters, selected_context)
     rows_html = templates.get_template("_listing_rows.html").render(
@@ -323,7 +327,7 @@ async def spatial_listings(
         "total": total,
         "shown": len(row_context["listings"]),
         "limit": PAGE_SIZE,
-        "listing_ids": [str(item.id) for item in candidates],
+        "listing_ids": [str(item.group_id or item.id) for item in candidates],
         "rows_html": rows_html,
     }
 
@@ -368,13 +372,17 @@ async def listing_detail(
     if listing is None:
         raise HTTPException(status_code=404, detail="Listing not found")
     observations = (
-        await session.execute(
-            select(ListingObservation)
-            .where(ListingObservation.listing_id == listing.id)
-            .order_by(ListingObservation.observed_at.desc())
-            .limit(200)
+        (
+            await session.execute(
+                select(ListingObservation)
+                .where(ListingObservation.listing_id == listing.id)
+                .order_by(ListingObservation.observed_at.desc())
+                .limit(200)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     stats = await listing_history_stats(session, [listing.id])
     segments = build_market_segments(await _recent_market_listings(session, 180))
     listing_stats = stats.get(listing.id, ListingHistoryStats())
@@ -384,12 +392,16 @@ async def listing_detail(
         segments.get(segment_key(listing)),
     )
     price_changes = (
-        await session.execute(
-            select(PriceHistory)
-            .where(PriceHistory.listing_id == listing.id)
-            .order_by(PriceHistory.observed_at.desc())
+        (
+            await session.execute(
+                select(PriceHistory)
+                .where(PriceHistory.listing_id == listing.id)
+                .order_by(PriceHistory.observed_at.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     return templates.TemplateResponse(
         request,
@@ -493,6 +505,15 @@ async def update_listing_state(
     if listing is None:
         raise HTTPException(status_code=404, detail="Listing not found")
 
+    if listing.group_id:
+        group = await session.get(ApartmentGroup, listing.group_id)
+        assert group is not None
+        if action in {"favorite", "unfavorite"}:
+            group.is_favorite = action == "favorite"
+        else:
+            group.is_hidden = action == "hide"
+        await session.commit()
+        return RedirectResponse(_local_return(request), status_code=303)
     state = await _user_state(session, listing_id)
     if state is None:
         state = ListingUserState(listing_id=listing_id)
@@ -509,7 +530,7 @@ async def update_listing_state(
             state.is_hidden = False
 
     await session.commit()
-    return RedirectResponse(request.headers.get("referer") or "/", status_code=303)
+    return RedirectResponse(_local_return(request), status_code=303)
 
 
 def _filtered_listings_query(
@@ -540,11 +561,7 @@ def _filtered_listings_query(
         )
         conditions.append(
             or_(
-                *[
-                    column.like(f"%{query}%")
-                    for column in columns
-                    for query in text_queries
-                ],
+                *[column.like(f"%{query}%") for column in columns for query in text_queries],
             )
         )
     if filters.price_min is not None:
@@ -584,24 +601,23 @@ def _filtered_listings_query(
             .where(PriceHistory.observed_at >= changed_after)
         )
 
+    favorite = func.coalesce(ApartmentGroup.is_favorite, ListingUserState.is_favorite, False)
+    hidden = func.coalesce(ApartmentGroup.is_hidden, ListingUserState.is_hidden, False)
     match filters.view:
         case "favorites":
-            conditions.append(ListingUserState.is_favorite.is_(True))
-            conditions.append(
-                or_(ListingUserState.is_hidden.is_(False), ListingUserState.is_hidden.is_(None))
-            )
+            conditions.extend([favorite.is_(True), hidden.is_(False)])
         case "hidden":
-            conditions.append(ListingUserState.is_hidden.is_(True))
+            conditions.append(hidden.is_(True))
         case _:
-            conditions.append(
-                or_(ListingUserState.is_hidden.is_(False), ListingUserState.is_hidden.is_(None))
-            )
+            conditions.append(hidden.is_(False))
 
     stmt = (
         select(Listing)
         .join(ListingObservation, ListingObservation.listing_id == Listing.id)
         .join(Search, ListingObservation.search_id == Search.id)
         .outerjoin(ListingUserState, ListingUserState.listing_id == Listing.id)
+        .outerjoin(ApartmentGroup, ApartmentGroup.id == Listing.group_id)
+        .options(defer(Listing.raw_payload))
         .where(and_(*conditions))
         .distinct()
     )
@@ -636,6 +652,7 @@ async def _table_rows_context(
     filters: ListingFilters,
     context: SearchContext,
 ) -> TableRowsContext:
+    candidates[:] = unique_apartments(candidates)
     candidate_ids = [item.id for item in candidates]
     candidate_stats = await listing_history_stats(session, candidate_ids)
     segments = build_market_segments(
@@ -658,10 +675,9 @@ async def _table_rows_context(
     return {
         "listings": listings,
         "stats": {item.id: candidate_stats[item.id] for item in listings},
-        "recommendations": {
-            item.id: candidate_recommendations[item.id] for item in listings
-        },
+        "recommendations": {item.id: candidate_recommendations[item.id] for item in listings},
         "user_states": await _user_states(session, [item.id for item in listings]),
+        "apartments": await _apartment_summaries(session, listings),
     }
 
 
@@ -812,20 +828,25 @@ def _run_duration(run: CollectorRun) -> str:
 def _map_points(
     listings: list[Listing],
     user_states: dict[UUID, ListingUserState],
+    apartments: dict[UUID, dict] | None = None,
 ) -> list[dict[str, object]]:
     points = []
     for item in listings:
-        if item.latitude is None or item.longitude is None:
+        apartment = (apartments or {}).get(item.id, {})
+        latitude = apartment.get("latitude", item.latitude)
+        longitude = apartment.get("longitude", item.longitude)
+        if latitude is None or longitude is None:
             continue
         points.append(
             {
-                "id": str(item.id),
-                "lat": item.latitude,
-                "lng": item.longitude,
-                "price": format_rub(item.price_rub),
+                "id": str(item.group_id or item.id),
+                "listing_id": str(item.id),
+                "lat": latitude,
+                "lng": longitude,
+                "price": apartment.get("price", format_rub(item.price_rub)),
                 "title": item.address_normalized or item.address_raw or item.title or "-",
-                "source": item.source,
-                "url": f"/listings/{item.id}",
+                "source": apartment.get("source_label", item.source),
+                "url": f"/apartments/{item.group_id}" if item.group_id else f"/listings/{item.id}",
                 "favorite_action": "unfavorite"
                 if user_states.get(item.id) and user_states[item.id].is_favorite
                 else "favorite",
@@ -969,11 +990,7 @@ def _generated_search_url(source: str, object_type: str, rooms: int | None) -> s
 
 
 async def _user_state(session: AsyncSession, listing_id: UUID) -> ListingUserState | None:
-    return (
-        await session.execute(
-            select(ListingUserState).where(ListingUserState.listing_id == listing_id)
-        )
-    ).scalar_one_or_none()
+    return (await _user_states(session, [listing_id])).get(listing_id)
 
 
 async def _user_states(
@@ -987,7 +1004,19 @@ async def _user_states(
             select(ListingUserState).where(ListingUserState.listing_id.in_(listing_ids))
         )
     ).scalars()
-    return {state.listing_id: state for state in rows}
+    result = {state.listing_id: state for state in rows}
+    groups = (
+        await session.execute(
+            select(Listing.id, ApartmentGroup)
+            .join(ApartmentGroup, ApartmentGroup.id == Listing.group_id)
+            .where(Listing.id.in_(listing_ids))
+        )
+    ).all()
+    for listing_id, group in groups:
+        result[listing_id] = ListingUserState(
+            listing_id=listing_id, is_favorite=group.is_favorite, is_hidden=group.is_hidden
+        )
+    return result
 
 
 async def _recent_market_listings(
@@ -1007,16 +1036,188 @@ async def _recent_market_listings(
         conditions.append(Search.context_id == context.id)
     if context is not None and context.expected_rooms is not None:
         conditions.append(Listing.rooms == context.expected_rooms)
-    return list(
-        (
-            await session.execute(
-                select(Listing)
-                .join(ListingObservation, ListingObservation.listing_id == Listing.id)
-                .join(Search, ListingObservation.search_id == Search.id)
-                .where(*conditions)
-                .distinct()
+    return unique_apartments(
+        list(
+            (
+                await session.execute(
+                    select(Listing)
+                    .join(ListingObservation, ListingObservation.listing_id == Listing.id)
+                    .join(Search, ListingObservation.search_id == Search.id)
+                    .where(*conditions)
+                    .options(defer(Listing.raw_payload))
+                    .order_by(Listing.price_rub.asc().nulls_last(), Listing.id)
+                    .distinct()
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
     )
+
+
+def unique_apartments(listings: list[Listing]) -> list[Listing]:
+    seen: set[UUID] = set()
+    result = []
+    for item in listings:
+        key = item.group_id or item.id
+        if key not in seen:
+            result.append(item)
+            seen.add(key)
+    return result
+
+
+def _range_label(values, formatter) -> str:
+    numbers = sorted({value for value in values if value is not None})
+    if not numbers:
+        return "-"
+    if numbers[0] == numbers[-1]:
+        return formatter(numbers[0])
+    return f"{formatter(numbers[0])} – {formatter(numbers[-1])}"
+
+
+async def _apartment_summaries(session: AsyncSession, listings: list[Listing]) -> dict[UUID, dict]:
+    group_ids = {item.group_id for item in listings if item.group_id}
+    members: dict[UUID, list[Listing]] = {}
+    if group_ids:
+        rows = await session.scalars(
+            select(Listing)
+            .where(Listing.group_id.in_(group_ids), Listing.is_active.is_(True))
+            .options(defer(Listing.raw_payload))
+        )
+        for row in rows:
+            assert row.group_id is not None
+            members.setdefault(row.group_id, []).append(row)
+    result = {}
+    for item in listings:
+        group = members.get(item.group_id, [item]) if item.group_id else [item]
+        coordinates = next(
+            (
+                member
+                for member in [item, *group]
+                if member.latitude is not None and member.longitude is not None
+            ),
+            item,
+        )
+        sources = sorted({member.source for member in group})
+        result[item.id] = {
+            "price": _range_label([member.price_rub for member in group], format_rub),
+            "area": _range_label(
+                [member.area_total_m2 for member in group],
+                lambda value: f"{float(value):g}".replace(".", ","),
+            )
+            + " м²",
+            "source_label": ", ".join(sources),
+            "source_count": len(sources),
+            "url": f"/apartments/{item.group_id}" if item.group_id else f"/listings/{item.id}",
+            "latitude": coordinates.latitude,
+            "longitude": coordinates.longitude,
+        }
+    return result
+
+
+def _local_return(request: Request) -> str:
+    from urllib.parse import urlsplit
+
+    referer = urlsplit(request.headers.get("referer", "/"))
+    if referer.netloc and referer.netloc != request.url.netloc:
+        return "/"
+    return (referer.path or "/") + (f"?{referer.query}" if referer.query else "")
+
+
+@app.get("/apartments/{group_id}", response_class=HTMLResponse)
+async def apartment_detail(
+    request: Request, group_id: UUID, session: AsyncSession = SESSION_DEP
+) -> HTMLResponse:
+    group = await session.get(ApartmentGroup, group_id)
+    members = await group_members(session, group_id)
+    if group is None or not members:
+        raise HTTPException(404, "Apartment not found")
+    histories: dict[UUID, list[PriceHistory]] = {item.id: [] for item in members}
+    for change in (
+        await session.scalars(
+            select(PriceHistory)
+            .where(PriceHistory.listing_id.in_(histories))
+            .order_by(PriceHistory.observed_at.desc())
+        )
+    ).all():
+        histories[change.listing_id].append(change)
+    return templates.TemplateResponse(
+        request,
+        "apartment_detail.html",
+        {
+            "group": group,
+            "members": members,
+            "histories": histories,
+            "summary": (await _apartment_summaries(session, [members[0]]))[members[0].id],
+        },
+    )
+
+
+@app.post("/apartments/{group_id}/split")
+async def apartment_split(
+    group_id: UUID, listing_id: UUID, session: AsyncSession = SESSION_DEP
+) -> RedirectResponse:
+    try:
+        new_id = await split_member(session, group_id, listing_id)
+        await session.commit()
+    except ValueError as exc:
+        await session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+    return RedirectResponse(f"/apartments/{new_id}", 303)
+
+
+@app.get("/duplicates", response_class=HTMLResponse)
+async def duplicates_page(
+    request: Request,
+    status: str = Query("candidate", pattern="^(candidate|rejected)$"),
+    session: AsyncSession = SESSION_DEP,
+) -> HTMLResponse:
+    a, b = aliased(Listing), aliased(Listing)
+    pairs = (
+        await session.execute(
+            select(ListingLink, a, b)
+            .join(a, a.id == ListingLink.listing_id_a)
+            .join(b, b.id == ListingLink.listing_id_b)
+            .where(
+                ListingLink.match_type == "apartment",
+                ListingLink.status == status,
+                a.group_id != b.group_id,
+            )
+            .order_by(ListingLink.updated_at.desc(), ListingLink.id)
+            .limit(200)
+        )
+    ).all()
+    reviews = (
+        await session.scalars(select(ApartmentGroup).where(ApartmentGroup.needs_review.is_(True)))
+    ).all()
+    return templates.TemplateResponse(
+        request, "duplicates.html", {"pairs": pairs, "status": status, "reviews": reviews}
+    )
+
+
+@app.post("/duplicates/{link_id}")
+async def duplicate_decision(
+    link_id: UUID,
+    action: str = Query(pattern="^(confirm|reject)$"),
+    session: AsyncSession = SESSION_DEP,
+) -> RedirectResponse:
+    link = await session.get(ListingLink, link_id)
+    if link is None:
+        raise HTTPException(404, "Candidate not found")
+    try:
+        if action == "confirm":
+            group_id = await confirm_link(session, link)
+            destination = f"/apartments/{group_id}"
+        else:
+            a = await session.get(Listing, link.listing_id_a)
+            b = await session.get(Listing, link.listing_id_b)
+            if a and b and a.group_id == b.group_id:
+                raise ValueError("Split a member before rejecting an existing group")
+            link.status = "rejected"
+            link.decision_origin = "manual"
+            destination = "/duplicates"
+        await session.commit()
+    except ValueError as exc:
+        await session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+    return RedirectResponse(destination, 303)

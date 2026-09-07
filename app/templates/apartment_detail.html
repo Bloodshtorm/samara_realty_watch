@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Квартира · Samara Realty Watch</title>{% include '_apartment_style.html' %}</head>
+<body><main>
+<nav><a href="/">Объекты</a><a href="/duplicates">Проверка дублей</a></nav>
+<header>
+<div class="muted">{{ summary.source_count }} источников</div>
+<h1>{{ members[0].address_normalized or members[0].address_raw or 'Квартира' }}</h1>
+{% if group.needs_review %}<p class="warning">Адрес или этаж изменился. Проверьте состав квартиры.</p>{% endif %}
+<div class="metrics"><div>Цена активных объявлений<strong>{{ summary.price }} ₽</strong></div><div>Площадь<strong>{{ summary.area }}</strong></div></div>
+<div class="actions">
+<form method="post" action="/listings/{{ members[0].id }}/state?action={{ 'unfavorite' if group.is_favorite else 'favorite' }}"><button title="Избранное">{{ 'Убрать из избранного' if group.is_favorite else 'В избранное' }}</button></form>
+<form method="post" action="/listings/{{ members[0].id }}/state?action={{ 'unhide' if group.is_hidden else 'hide' }}"><button>{{ 'Вернуть в список' if group.is_hidden else 'Скрыть квартиру' }}</button></form>
+</div></header>
+<h2>Объявления на площадках</h2>
+<div class="table-scroll"><table class="sources-table"><thead><tr><th>Площадка</th><th>Цена, ₽</th><th>Площадь, м²</th><th>Этаж</th><th>Последний раз</th><th>Статус</th><th></th></tr></thead><tbody>
+{% for item in members %}<tr>
+<td data-label="Площадка"><span><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.source }}</a> · <a href="/listings/{{ item.id }}">Объявление</a></span></td>
+<td data-label="Цена, ₽">{{ item.price_rub|rub }}</td><td data-label="Площадь, м²">{{ item.area_total_m2|m2 }}</td>
+<td data-label="Этаж">{{ item.floor if item.floor is not none else '-' }}/{{ item.floors_total or '-' }}</td>
+<td data-label="Последний раз">{{ item.last_seen_at|dt }}</td><td data-label="Статус">{{ 'Активно' if item.is_active else 'Неактивно' }}</td>
+<td>{% if members|length > 1 %}<form method="post" action="/apartments/{{ group.id }}/split?listing_id={{ item.id }}"><button title="Отделить это объявление в другую квартиру">Отделить</button></form>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>
+<h2>История цен по площадкам</h2>
+{% for item in members %}<details><summary>{{ item.source }} · {{ histories[item.id]|length }} изменений</summary>
+{% if histories[item.id] %}<div class="table-scroll"><table><thead><tr><th>Дата</th><th>Было, ₽</th><th>Стало, ₽</th></tr></thead><tbody>
+{% for change in histories[item.id] %}<tr><td>{{ change.observed_at|dt }}</td><td>{{ change.old_price_rub|rub }}</td><td>{{ change.new_price_rub|rub }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="muted">Изменений цены нет.</p>{% endif %}</details>{% endfor %}
+<h2>Описания</h2>{% for item in members %}<details><summary>{{ item.source }}</summary><div class="description">{{ item.description or 'Описание отсутствует.' }}</div></details>{% endfor %}
+</main></body></html>

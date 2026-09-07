@@ -78,11 +78,24 @@ class Search(Base):
     context: Mapped[SearchContext | None] = relationship(back_populates="searches")
 
 
+class ApartmentGroup(Base):
+    __tablename__ = "apartment_groups"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Listing(Base):
     __tablename__ = "listings"
     __table_args__ = (UniqueConstraint("source", "source_listing_id", name="uq_listing_source_id"),)
 
     id: Mapped[uuid.UUID] = uuid_pk()
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("apartment_groups.id", ondelete="SET NULL"), index=True
+    )
     source: Mapped[str] = mapped_column(String(50), index=True)
     source_listing_id: Mapped[str] = mapped_column(String(300))
     url: Mapped[str] = mapped_column(Text)
@@ -186,6 +199,8 @@ class ListingLink(Base):
     listing_id_a: Mapped[uuid.UUID] = mapped_column(ForeignKey("listings.id", ondelete="CASCADE"))
     listing_id_b: Mapped[uuid.UUID] = mapped_column(ForeignKey("listings.id", ondelete="CASCADE"))
     match_type: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(20), default="candidate", index=True)
+    decision_origin: Mapped[str] = mapped_column(String(20), default="automatic")
     confidence: Mapped[float] = mapped_column(Float)
     match_reason: Mapped[dict[str, Any]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

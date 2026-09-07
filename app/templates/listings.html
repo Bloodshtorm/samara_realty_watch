@@ -1041,6 +1041,7 @@
         <div>Период видимости: {{ filters.seen_days }} дн.</div>
       </div>
       <nav class="views" aria-label="Разделы">
+        <a class="view-tab" href="/duplicates">Проверка дублей</a>
         <a class="view-tab{% if filters.view == 'active' %} active{% endif %}" href="{{ view_url(request, 'active') }}">
           Активные
         </a>
@@ -1184,10 +1185,10 @@
         <div>${escapeHtml(item.source)}</div>
         <div class="map-popup-actions">
           <a href="${item.url}">Карточка</a>
-          <form method="post" action="/listings/${item.id}/state?action=${item.favorite_action}">
+          <form method="post" action="/listings/${item.listing_id}/state?action=${item.favorite_action}">
             <button type="submit">${escapeHtml(item.favorite_label)}</button>
           </form>
-          <form method="post" action="/listings/${item.id}/state?action=hide">
+          <form method="post" action="/listings/${item.listing_id}/state?action=hide">
             <button type="submit">Скрыть</button>
           </form>
         </div>

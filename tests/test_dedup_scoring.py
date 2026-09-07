@@ -10,6 +10,7 @@ def listing(**kwargs) -> Listing:
     defaults = {
         "id": uuid4(),
         "source": "a",
+        "property_type": "flat",
         "source_listing_id": str(uuid4()),
         "url": "https://example.test/1",
         "canonical_url": "https://example.test/1",
@@ -31,7 +32,7 @@ def test_deduplication_probable_match() -> None:
     b = listing(source="cian", price_rub=9_000_000, canonical_url="https://example.test/2")
     candidate = compare_listings(a, b)
     assert candidate is not None
-    assert candidate.confidence >= 0.75
+    assert not candidate.automatic  # A short generic description needs manual confirmation.
     assert candidate.match_reason["match_type"] == "cross_source_probable_duplicate"
 
 

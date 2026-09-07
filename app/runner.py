@@ -13,6 +13,7 @@ from app.db import create_engine, create_session_factory
 from app.models import Base, CollectorRun, Search, SearchContext
 from collectors import COLLECTORS
 from collectors.debug import setup_debug
+from services.apartments import reconcile_groups
 from services.ingestion import upsert_listing
 from services.normalization import should_exclude_listing
 from services.retention import prune_history
@@ -169,6 +170,9 @@ async def collect_once(
                         search_id=str(search.id),
                         found=len(parsed),
                     )
+                    async with session.begin():
+                        grouping = await reconcile_groups(session)
+                    log.info("apartments_reconciled", **grouping)
                 except Exception as exc:
                     async with session.begin():
                         db_search = await session.get(Search, search.id)

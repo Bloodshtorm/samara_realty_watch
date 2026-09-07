@@ -8,12 +8,15 @@ from typing import Annotated
 import typer
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
+from sqlalchemy import MetaData, Table, select
 
 from app.config import Settings, load_searches
 from app.db import create_engine, create_session_factory
 from app.logging_config import configure_logging
 from app.models import Listing
 from app.runner import collect_once, init_db
+from services.apartments import candidate_pairs, reconcile_groups
+from services.deduplication import compare_listings
 from services.reporting import generate_report
 from services.stats import market_price_stats
 from services.telegram import send_telegram
@@ -158,8 +161,81 @@ def listing_show(id: str) -> None:
 
 
 @listing_app.command("duplicates")
-def listing_duplicates() -> None:
-    typer.echo("Команда зарезервирована: probable duplicates сохраняются в listing_links.")
+def listing_duplicates(apply: bool = typer.Option(False, "--apply")) -> None:
+    """Preview duplicate candidates; --apply persists apartment groups after migration."""
+
+    async def run() -> None:
+        engine = create_engine(settings())
+        try:
+            factory = create_session_factory(engine)
+            if apply:
+                async with factory() as session, session.begin():
+                    typer.echo(json.dumps(await reconcile_groups(session)))
+                return
+            # Reflection allows a read-only preview before installing the new schema.
+            async with engine.connect() as conn:
+                table = await conn.run_sync(
+                    lambda sync: Table("listings", MetaData(), autoload_with=sync)
+                )
+                rows = (await conn.execute(select(table))).mappings().all()
+            from uuid import UUID
+
+            items = []
+            for row in rows:
+                values = dict(row)
+                for name in ("id", "group_id"):
+                    if values.get(name) and not isinstance(values[name], UUID):
+                        values[name] = UUID(values[name])
+                items.append(Listing(**values))
+            by_id = {item.id: item for item in items}
+            pairs = candidate_pairs(items)
+            matches = {key: compare_listings(by_id[key[0]], by_id[key[1]]) for key in pairs}
+            groups = {item.id: [item.id] for item in items}
+            owner = {item.id: item.id for item in items}
+            from services.apartments import pair_key
+
+            for key in sorted(pairs, key=str):
+                left, right = (owner[ident] for ident in key)
+                if left == right:
+                    continue
+                if all(
+                    (match := matches.get(pair_key(a, b))) and match.automatic
+                    for a in groups[left]
+                    for b in groups[right]
+                ):
+                    for ident in groups[right]:
+                        owner[ident] = left
+                    groups[left].extend(groups.pop(right))
+            output = [
+                [
+                    {
+                        "id": str(ident),
+                        "source": by_id[ident].source,
+                        "address": by_id[ident].address_normalized,
+                        "area": float(by_id[ident].area_total_m2 or 0),
+                    }
+                    for ident in members
+                ]
+                for members in groups.values()
+                if len(members) > 1
+            ]
+            typer.echo(
+                json.dumps(
+                    {
+                        "read_only": True,
+                        "compared_pairs": len(pairs),
+                        "groups": output,
+                        "candidate_pairs": sum(
+                            bool(match and not match.automatic) for match in matches.values()
+                        ),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
 
 
 @cli.command("notify-test")
