@@ -23,7 +23,7 @@ EOF
 
 cat > "${user_systemd_dir}/samara-realty-collector.timer" <<'EOF'
 [Unit]
-Description=Run Samara Realty Watch collector every 2 hours
+Description=Run Samara Realty Watch collector every 3 hours
 
 [Timer]
 OnBootSec=5min

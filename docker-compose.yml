@@ -35,7 +35,7 @@ services:
     env_file:
       - .env
     environment:
-      COLLECT_INTERVAL_SECONDS: ${COLLECT_INTERVAL_SECONDS:-7200}
+      COLLECT_INTERVAL_SECONDS: ${COLLECT_INTERVAL_SECONDS:-10800}
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,7 +51,7 @@ services:
       - |
         while true; do
           python -m app collect
-          sleep "$${COLLECT_INTERVAL_SECONDS:-7200}"
+          sleep "$${COLLECT_INTERVAL_SECONDS:-10800}"
         done
 
   browser-auth:

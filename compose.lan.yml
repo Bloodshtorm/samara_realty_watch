@@ -17,7 +17,7 @@ x-app: &app
     SCORING_CONFIG_PATH: /app/config/scoring.yaml
     SCREENSHOTS_DIR: /app/data/debug/screenshots
     HTML_DUMPS_DIR: /app/data/debug/html
-    COLLECT_INTERVAL_SECONDS: "7200"
+    COLLECT_INTERVAL_SECONDS: "10800"
     APP_SESSION_DAYS: "30"
   volumes:
     - ./data:/app/data

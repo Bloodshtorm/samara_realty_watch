@@ -20,7 +20,7 @@ while true; do
   wait "$child" || result=$?
   child=""
   echo "Collection finished with exit code $result"
-  delay=$(( ${COLLECT_INTERVAL_SECONDS:-7200} - (SECONDS - started) ))
+  delay=$(( ${COLLECT_INTERVAL_SECONDS:-10800} - (SECONDS - started) ))
   (( delay > 0 )) || delay=1
   sleep "$delay" &
   child=$!

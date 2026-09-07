@@ -155,10 +155,10 @@ docker compose run --rm collector python -m app collect --search yandex_samara_3
 make scheduler
 ```
 
-Compose-сервис `scheduler` запускает `python -m app collect` каждые 2 часа. Интервал можно изменить через `.env`:
+Compose-сервис `scheduler` запускает `python -m app collect` каждые 3 часа. Интервал можно изменить через `.env`:
 
 ```env
-COLLECT_INTERVAL_SECONDS=7200
+COLLECT_INTERVAL_SECONDS=10800
 ```
 
 Логи:

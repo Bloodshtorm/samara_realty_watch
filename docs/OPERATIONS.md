@@ -50,7 +50,7 @@ after the first user exists, manage users at `/admin/users`.
 This is a personal LAN service, not a public production system.
 
 - Target availability: always reachable over LAN SSH and web UI.
-- Collector cadence: every 2 hours via the container scheduler; a shared file lock prevents overlapping manual/scheduled runs.
+- Collector cadence: every 3 hours via the container scheduler; a shared file lock prevents overlapping manual/scheduled runs.
 - Web UI recovery target: restart service immediately after deploy or failure.
 - Data safety: do not delete SQLite/PostgreSQL/runtime data unless the user explicitly asks.
 - Browser sessions: preserve `data/browser-profile`; it contains the source-site login state.
@@ -134,7 +134,7 @@ sudo docker compose -f compose.lan.yml run --rm --no-deps collector --search <ex
 ```
 
 Manual collection uses the same lock as the scheduler and exits 75 if busy. The scheduler
-runs immediately at startup, then every 7200 seconds from the prior start (no overlap).
+runs immediately at startup, then every 10800 seconds from the prior start (no overlap).
 Stop the scheduler and wait for active manual collectors before migrations/DB maintenance.
 Use the existing verified database backup tooling; browser backups require a stopped browser.
 
