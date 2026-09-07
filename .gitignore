@@ -1,5 +1,10 @@
 .env
 .env.bak*
+.env.lan
+data/browser-profile-docker/
+data/backups/
+data/docker/
+data/collector.lock
 .venv/
 __pycache__/
 .pytest_cache/

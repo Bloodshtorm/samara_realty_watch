@@ -1,0 +1,104 @@
+name: samara-realty-lan
+
+x-app: &app
+  image: samara-realty-app:${IMAGE_TAG:-lan}
+  build:
+    context: .
+    dockerfile: Dockerfile.lan
+    target: application
+  user: "1000:1000"
+  init: true
+  env_file: .env
+  environment: &environment
+    DATABASE_URL: sqlite+aiosqlite:////app/data/realty.sqlite3
+    BROWSER_CDP_URL: http://127.0.0.1:9222
+    BROWSER_PROFILE_DIR: /browser-profile
+    SEARCHES_CONFIG_PATH: /app/config/searches.yaml
+    SCORING_CONFIG_PATH: /app/config/scoring.yaml
+    SCREENSHOTS_DIR: /app/data/debug/screenshots
+    HTML_DUMPS_DIR: /app/data/debug/html
+    COLLECT_INTERVAL_SECONDS: "7200"
+  volumes:
+    - ./data:/app/data
+    - ./config:/app/config:ro
+  stop_grace_period: 2m
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  web:
+    <<: *app
+    environment:
+      <<: *environment
+      BROWSER_CDP_URL: ""
+    ports:
+      - "${LAN_BIND_IP:-192.168.0.246}:8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  browser-auth:
+    image: samara-realty-browser:${IMAGE_TAG:-lan}
+    build:
+      context: .
+      dockerfile: Dockerfile.lan
+      target: browser
+      args:
+        CHROME_VERSION: ${CHROME_VERSION:-152.0.7977.64-1}
+    user: "1000:1000"
+    init: true
+    shm_size: 1gb
+    security_opt:
+      - seccomp=./scripts/docker-seccomp.json
+    environment:
+      HOME: /home/pwuser
+      BROWSER_PROFILE_DIR: /browser-profile
+      NOVNC_PASSWORD_FILE: /run/secrets/vnc-password
+      AUTH_URLS_FILE: /run/secrets/auth-urls
+    volumes:
+      - ./data/browser-profile-docker:/browser-profile
+      - /home/bs/.config/samara-realty-watch/x11vnc.pass:/run/secrets/vnc-password:ro
+      - /home/bs/.config/samara-realty-watch/auth-urls.txt:/run/secrets/auth-urls:ro
+    ports:
+      - "${LAN_BIND_IP:-192.168.0.246}:6080:6080"
+    restart: unless-stopped
+    stop_grace_period: 2m
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:9222/json/version', timeout=5); urlopen('http://127.0.0.1:6080/vnc.html', timeout=5)"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 45s
+
+  scheduler:
+    <<: *app
+    profiles: ["collect"]
+    network_mode: service:browser-auth
+    depends_on:
+      browser-auth:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["bash", "/app/scripts/container-scheduler.sh"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,time; assert time.time()-os.stat('/tmp/scheduler-heartbeat').st_mtime < 120"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  collector:
+    <<: *app
+    profiles: ["manual"]
+    network_mode: service:browser-auth
+    depends_on:
+      browser-auth:
+        condition: service_healthy
+    entrypoint: ["bash", "/app/scripts/container-collect.sh"]
+    command: []

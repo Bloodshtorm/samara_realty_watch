@@ -12,11 +12,12 @@ from urllib.parse import parse_qs, urlencode
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from pydantic import BaseModel, Field
 from sqlalchemy import Select, and_, exists, func, or_, select, true
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased, defer
 from sqlalchemy.sql.elements import ColumnElement
@@ -202,6 +203,15 @@ async def db_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 FILTERS_DEP = Depends(parse_filters)
 SESSION_DEP = Depends(db_session)
+
+
+@app.get("/healthz", include_in_schema=False)
+async def healthz(session: AsyncSession = SESSION_DEP) -> JSONResponse:
+    try:
+        await session.execute(select(1))
+    except SQLAlchemyError:
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    return JSONResponse({"status": "ok"})
 
 
 def _optional_int(
