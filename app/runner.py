@@ -84,6 +84,7 @@ async def collect_once(
         async for context in persistent_context(settings):
             yield context
 
+    collected_any = False
     async with browser() as context:
         for search in searches:
             if not search.enabled:
@@ -170,9 +171,7 @@ async def collect_once(
                         search_id=str(search.id),
                         found=len(parsed),
                     )
-                    async with session.begin():
-                        grouping = await reconcile_groups(session)
-                    log.info("apartments_reconciled", **grouping)
+                    collected_any = True
                 except Exception as exc:
                     async with session.begin():
                         db_search = await session.get(Search, search.id)
@@ -189,4 +188,8 @@ async def collect_once(
                         db_search.last_error = str(exc)
                         await send_telegram(settings, format_error_message(search.source, str(exc)))
                     log.exception("collect_failed", source=search.source, search_id=str(search.id))
+    if collected_any:
+        async with session_factory() as session, session.begin():
+            grouping = await reconcile_groups(session)
+        log.info("apartments_reconciled", **grouping)
     await engine.dispose()
