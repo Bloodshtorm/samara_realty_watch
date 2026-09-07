@@ -51,7 +51,7 @@ services:
       dockerfile: Dockerfile.lan
       target: browser
       args:
-        CHROME_VERSION: ${CHROME_VERSION:-152.0.7977.64-1}
+        CHROME_VERSION: ${CHROME_VERSION:-152.0.7977.82-1}
     user: "1000:1000"
     init: true
     shm_size: 1gb
