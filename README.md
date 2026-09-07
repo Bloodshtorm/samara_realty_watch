@@ -39,6 +39,28 @@ make report
 cd /d/dev/samara_realty_watch
 ```
 
+## Операции и deploy
+
+Канонические серверные параметры и команды лежат в [`docs/OPERATIONS.md`](docs/OPERATIONS.md): SSH host, deploy path, systemd services, noVNC, CDP, проверки и порядок deploy.
+
+Нормальный процесс внесения изменений:
+
+```bash
+git status --short
+pytest
+ruff check .
+mypy app collectors services
+git add -A
+git commit -m "Short imperative message"
+git push origin <branch>
+ssh bs@192.168.0.246
+cd /home/bs/soft/github/samara_realty_watch
+git pull --ff-only
+systemctl --user restart samara-realty-web.service
+```
+
+Не используйте прямое копирование файлов на сервер как основной deploy. `scp` допустим для быстрой диагностики, но после него ту же правку нужно закоммитить и запушить.
+
 На свежем Debian-сервере можно подготовить системные prerequisites, `.venv`, локальные конфиги и сразу прогнать проверки:
 
 ```bash

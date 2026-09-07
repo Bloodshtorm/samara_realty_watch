@@ -29,6 +29,15 @@ This repository is a Python 3.12 personal realty monitoring service for Samara a
 
 When Docker image download is slow, use a temporary Python container for non-browser tasks.
 
+## Operations & Deployment
+
+- Read `docs/OPERATIONS.md` before any task that touches `lan-dev`, noVNC, systemd, scheduler, live collection, deploy, or runtime data.
+- Treat `docs/OPERATIONS.md` as the canonical source for SSH host, deploy path, service names, ports, and deploy commands. Do not rely on memory or earlier chat messages for those values.
+- Preferred deploy flow is git-based: commit locally, push to GitHub, then run `git pull --ff-only` on the server and restart the affected services.
+- Direct `scp` to the server is acceptable only for emergency debugging or fast diagnosis; commit and push the same change promptly afterward.
+- Do not delete database files, browser profiles, debug artifacts, or runtime config without explicit user approval and a backup plan.
+- For Avito, Cian, Domclick, or any source needing browser state, use the persistent browser profile/noVNC path from `docs/OPERATIONS.md`; do not enable a search in scheduler until a live collect returns a non-zero useful result.
+
 ## Coding Style & Naming Conventions
 
 Use 4-space indentation, type hints, and small focused modules. Prefer async SQLAlchemy APIs for DB work. Keep source names stable: `yandex_realty`, `domclick`, `cian`, `avito`. Use `snake_case` for functions, variables, config keys, and CLI options. Run `ruff format` before committing.
