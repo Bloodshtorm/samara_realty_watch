@@ -58,7 +58,7 @@ services:
     security_opt:
       - seccomp=./scripts/docker-seccomp.json
     environment:
-      HOME: /home/pwuser
+      HOME: /home/ubuntu
       BROWSER_PROFILE_DIR: /browser-profile
       NOVNC_PASSWORD_FILE: /run/secrets/vnc-password
       AUTH_URLS_FILE: /run/secrets/auth-urls

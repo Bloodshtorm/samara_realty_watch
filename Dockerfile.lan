@@ -1,5 +1,5 @@
 FROM mcr.microsoft.com/playwright/python:v1.61.0-noble AS runtime
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HOME=/home/pwuser
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HOME=/home/ubuntu
 WORKDIR /app
 
 FROM runtime AS application
