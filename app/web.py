@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from pydantic import BaseModel, Field
-from sqlalchemy import Select, and_, exists, func, or_, select
+from sqlalchemy import Select, and_, exists, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased, defer
 from sqlalchemy.sql.elements import ColumnElement
@@ -1081,7 +1081,7 @@ async def _apartment_summaries(session: AsyncSession, listings: list[Listing]) -
     if group_ids:
         rows = await session.scalars(
             select(Listing)
-            .where(Listing.group_id.in_(group_ids), Listing.is_active.is_(True))
+            .where(Listing.group_id.in_(group_ids))
             .options(defer(Listing.raw_payload))
         )
         for row in rows:
@@ -1100,7 +1100,9 @@ async def _apartment_summaries(session: AsyncSession, listings: list[Listing]) -
         )
         sources = sorted({member.source for member in group})
         result[item.id] = {
-            "price": _range_label([member.price_rub for member in group], format_rub),
+            "price": _range_label(
+                [member.price_rub for member in group if member.is_active], format_rub
+            ),
             "area": _range_label(
                 [member.area_total_m2 for member in group],
                 lambda value: f"{float(value):g}".replace(".", ","),
@@ -1170,6 +1172,8 @@ async def apartment_split(
 async def duplicates_page(
     request: Request,
     status: str = Query("candidate", pattern="^(candidate|rejected)$"),
+    group_id: UUID | None = None,
+    page: int = Query(1, ge=1),
     session: AsyncSession = SESSION_DEP,
 ) -> HTMLResponse:
     a, b = aliased(Listing), aliased(Listing)
@@ -1182,16 +1186,21 @@ async def duplicates_page(
                 ListingLink.match_type == "apartment",
                 ListingLink.status == status,
                 a.group_id != b.group_id,
+                or_(a.group_id == group_id, b.group_id == group_id) if group_id else true(),
             )
             .order_by(ListingLink.updated_at.desc(), ListingLink.id)
             .limit(200)
+            .offset((page - 1) * 200)
         )
     ).all()
     reviews = (
         await session.scalars(select(ApartmentGroup).where(ApartmentGroup.needs_review.is_(True)))
     ).all()
     return templates.TemplateResponse(
-        request, "duplicates.html", {"pairs": pairs, "status": status, "reviews": reviews}
+        request, "duplicates.html", {
+            "pairs": pairs, "status": status, "reviews": reviews,
+            "group_id": group_id, "page": page,
+        }
     )
 
 

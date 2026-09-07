@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Проверка дублей · Samara Realty Watch</title>{% include '_apartment_style.html' %}</head>
-<body><main><nav><a href="/">Объекты</a><a href="/duplicates" {% if status == 'candidate' %}aria-current="page"{% endif %}>На проверке</a><a href="/duplicates?status=rejected" {% if status == 'rejected' %}aria-current="page"{% endif %}>Отклонённые</a></nav>
+<body><main><nav><a href="/">Объекты</a><a href="/duplicates?status=candidate{% if group_id %}&group_id={{ group_id }}{% endif %}" {% if status == 'candidate' %}aria-current="page"{% endif %}>На проверке</a><a href="/duplicates?status=rejected{% if group_id %}&group_id={{ group_id }}{% endif %}" {% if status == 'rejected' %}aria-current="page"{% endif %}>Отклонённые</a>{% if group_id %}<a href="/apartments/{{ group_id }}">Квартира</a><a href="/duplicates">Все совпадения</a>{% endif %}</nav>
 <h1>Проверка дублей</h1>
 {% for group in reviews %}<p class="warning"><a href="/apartments/{{ group.id }}">Изменились характеристики объединённой квартиры</a></p>{% endfor %}
 {% for link, a, b in pairs %}
 <article class="pair"><div class="comparison">
-{% for item in [a, b] %}<div><a href="/listings/{{ item.id }}">{{ item.source }} · {{ item.title or 'Квартира' }}</a><p>{{ item.address_normalized or item.address_raw }}</p><p><strong>{{ item.price_rub|rub }} ₽</strong> · {{ item.area_total_m2|m2 }} м² · {{ item.floor if item.floor is not none else '-' }}/{{ item.floors_total or '-' }} этаж</p><a href="/apartments/{{ item.group_id }}">Все источники квартиры</a><details><summary>Описание</summary><div class="description">{{ item.description or '-' }}</div></details></div>{% endfor %}
+{% for item in [a, b] %}<div><a href="/listings/{{ item.id }}">{{ item.source }} · {{ item.title or 'Квартира' }}</a><p>{{ item.address_normalized or item.address_raw }}</p><p><strong>{{ item.price_rub|rub }}</strong> · {{ item.area_total_m2|m2 }} · {{ item.floor if item.floor is not none else '-' }}/{{ item.floors_total or '-' }} этаж</p><a href="/apartments/{{ item.group_id }}">Все источники квартиры</a><details><summary>Описание</summary><div class="description">{{ item.description or '-' }}</div></details></div>{% endfor %}
 </div>
 {% set reason = link.match_reason or {} %}
 <p class="muted">Дом: {{ 'совпадает' if reason.get('same_house') else 'не подтверждён' }} · Совпадающих фото: {{ reason.get('shared_photos', 0) }} · Сходство описаний: {{ (reason.get('description_similarity', 0) * 100)|round|int }}%</p>
@@ -14,5 +14,5 @@
 <div class="actions"><form method="post" action="/duplicates/{{ link.id }}?action=confirm"><button>Одна квартира</button></form>
 {% if status == 'candidate' %}<form method="post" action="/duplicates/{{ link.id }}?action=reject"><button>Разные квартиры</button></form>{% endif %}</div></article>
 {% else %}<p class="muted">{{ 'Отклонённых совпадений нет.' if status == 'rejected' else 'Спорных совпадений нет.' }}</p>{% endfor %}
-{% if pairs|length == 200 %}<p class="muted">Показаны последние 200 пар.</p>{% endif %}
+<nav aria-label="Страницы">{% if page > 1 %}<a href="?status={{ status }}&page={{ page - 1 }}{% if group_id %}&group_id={{ group_id }}{% endif %}">Предыдущая</a>{% endif %}<span>Страница {{ page }}</span>{% if pairs|length == 200 %}<a href="?status={{ status }}&page={{ page + 1 }}{% if group_id %}&group_id={{ group_id }}{% endif %}">Следующая</a>{% endif %}</nav>
 </main></body></html>

@@ -26,7 +26,7 @@ from app.web import (
     unique_apartments,
 )
 from services.apartments import candidate_pairs, confirm_link, reconcile_groups, split_member
-from services.deduplication import building_key, compare_listings
+from services.deduplication import building_key, compare_listings, is_flat
 
 DESCRIPTION = (
     "Номер объекта: 123456. Просторная квартира с индивидуальной планировкой. "
@@ -72,6 +72,16 @@ async def factory(tmp_path):
         await conn.run_sync(Base.metadata.create_all)
     yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
+
+
+def test_flat_classification_without_source_type():
+    assert is_flat(listing(property_type=None, title="3-комн. квартира, 77 м2"))
+    assert is_flat(listing(property_type="newBuildingFlatSale"))
+    assert not is_flat(listing(property_type=None, title="Участок"))
+    assert not is_flat(listing(property_type=None, title="Доля: квартира"))
+    assert not is_flat(listing(property_type=None, floor=None))
+    assert not is_flat(listing(property_type="flatShareSale"))
+    assert not is_flat(listing(property_type="land"))
 
 
 def test_three_source_regression_and_photo_provenance():
@@ -240,6 +250,8 @@ async def test_filters_routes_and_group_actions(factory):
             for route in ["/", "/duplicates", f"/apartments/{group_id}", f"/listings/{a.id}"]:
                 response = await client.get(route)
                 assert response.status_code == 200, response.text
+                assert "₽ ₽" not in response.text
+            assert (await client.get(f"/duplicates?group_id={group_id}")).status_code == 200
             response = await client.post(
                 "/api/listings/spatial",
                 json={"mode": "bounds", "north": 54, "south": 53, "east": 51, "west": 50},

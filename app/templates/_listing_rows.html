@@ -55,7 +55,7 @@
         {{ item_stats.total_change_rub|rub }} · {{ item_stats.total_change_percent|percent }}
       </span>
     </td>
-    <td class="source-col" data-label="Источники"><span class="badge" title="{{ apartment.source_label }}">{% if apartment.source_count > 1 %}{{ apartment.source_count }} площадки{% else %}{{ item.source }}{% endif %}</span></td>
+    <td class="source-col" data-label="Источники"><span class="badge" title="{{ apartment.source_label }}">{% if apartment.source_count > 1 %}Площадки: {{ apartment.source_count }}{% else %}{{ item.source }}{% endif %}</span></td>
     <td class="num date-col" data-label="Первый раз">{{ item.first_seen_at|dt }}</td>
     <td class="num date-col" data-label="Последний раз">{{ item.last_seen_at|dt }}</td>
     <td class="action-col" data-label="Действия">

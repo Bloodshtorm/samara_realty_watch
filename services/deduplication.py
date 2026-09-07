@@ -10,7 +10,7 @@ from app.models import Listing
 from services.normalization import compact_text
 
 ALGORITHM_VERSION = "apartments-v1"
-FLAT_TYPES = {"flat", "flats", "flatSale", "apartment", "квартира"}
+FLAT_TYPES = {"flat", "flats", "flatSale", "newBuildingFlatSale", "apartment", "квартира"}
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,15 @@ class DuplicateCandidate:
 
 
 def is_flat(item: Listing) -> bool:
-    return item.property_type in FLAT_TYPES
+    if item.property_type:
+        return item.property_type in FLAT_TYPES
+    title = (item.title or "").lower()
+    return bool(
+        re.search(r"\bквартира\b", title)
+        and not re.search(r"\b(?:доля|доли|комната|комнаты)\b", title)
+        and item.rooms is not None
+        and item.floor is not None
+    )
 
 
 def building_key(item: Listing) -> str | None:

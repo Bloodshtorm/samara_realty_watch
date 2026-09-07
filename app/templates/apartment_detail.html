@@ -2,12 +2,12 @@
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Квартира · Samara Realty Watch</title>{% include '_apartment_style.html' %}</head>
 <body><main>
-<nav><a href="/">Объекты</a><a href="/duplicates">Проверка дублей</a></nav>
+<nav><a href="/">Объекты</a><a href="/duplicates?group_id={{ group.id }}">Совпадения этой квартиры</a><a href="/duplicates">Проверка дублей</a></nav>
 <header>
-<div class="muted">{{ summary.source_count }} источников</div>
+<div class="muted">Источников: {{ summary.source_count }}</div>
 <h1>{{ members[0].address_normalized or members[0].address_raw or 'Квартира' }}</h1>
 {% if group.needs_review %}<p class="warning">Адрес или этаж изменился. Проверьте состав квартиры.</p>{% endif %}
-<div class="metrics"><div>Цена активных объявлений<strong>{{ summary.price }} ₽</strong></div><div>Площадь<strong>{{ summary.area }}</strong></div></div>
+<div class="metrics"><div>Цена активных объявлений<strong>{{ summary.price }}</strong></div><div>Площадь<strong>{{ summary.area }}</strong></div></div>
 <div class="actions">
 <form method="post" action="/listings/{{ members[0].id }}/state?action={{ 'unfavorite' if group.is_favorite else 'favorite' }}"><button title="Избранное">{{ 'Убрать из избранного' if group.is_favorite else 'В избранное' }}</button></form>
 <form method="post" action="/listings/{{ members[0].id }}/state?action={{ 'unhide' if group.is_hidden else 'hide' }}"><button>{{ 'Вернуть в список' if group.is_hidden else 'Скрыть квартиру' }}</button></form>
