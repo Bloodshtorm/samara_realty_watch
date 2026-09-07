@@ -97,7 +97,10 @@ test suite before stopping the old runtime. Then disable the old collector timer
 the running collection to finish, stop the old web and browser services, and make verified
 SQLite/profile/config backups under `data/backups/`. Copy the stopped browser profile to
 `data/browser-profile-docker`, owned by UID/GID 1000. Do not downgrade Chrome or share one
-profile between running browsers. Chrome's sandbox remains enabled; `scripts/docker-seccomp.json`
+profile between running browsers. The container supervisor holds an exclusive profile flock
+and clears only stale Chrome SingletonLock/SingletonSocket/SingletonCookie files in that
+dedicated copy before startup; never run it against the original host profile.
+Chrome's sandbox remains enabled; `scripts/docker-seccomp.json`
 is the unmodified Playwright v1.61.0 profile from
 https://github.com/microsoft/playwright/blob/v1.61.0/utils/docker/seccomp_profile.json.
 

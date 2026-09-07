@@ -15,6 +15,12 @@ cleanup() {
 trap 'cleanup; exit 0' TERM INT
 trap cleanup EXIT
 test -s "$NOVNC_PASSWORD_FILE"
+test -n "$BROWSER_PROFILE_DIR"
+mkdir -p -- "$BROWSER_PROFILE_DIR"
+exec 9>"$BROWSER_PROFILE_DIR/.container-browser.lock"
+flock --nonblock 9 || exit 75
+# This dedicated copy is owned by this supervisor; copied Chrome host/PID locks are stale.
+rm -f -- "$BROWSER_PROFILE_DIR/SingletonLock" "$BROWSER_PROFILE_DIR/SingletonSocket" "$BROWSER_PROFILE_DIR/SingletonCookie"
 Xvfb "$DISPLAY" -screen 0 1440x1000x24 -ac +extension GLX +render -noreset &
 children+=($!)
 for attempt in {1..30}; do
