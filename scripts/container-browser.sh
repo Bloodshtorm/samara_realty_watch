@@ -10,6 +10,12 @@ cleanup() {
     wait "$chrome_pid" 2>/dev/null || true
   fi
   for pid in "${children[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
+  # Fluxbox can outlive its X server. Bound auxiliary shutdown after Chrome exits.
+  for attempt in {1..50}; do
+    [[ -n "$(jobs -pr)" ]] || break
+    sleep 0.1
+  done
+  for pid in "${children[@]}"; do kill -KILL "$pid" 2>/dev/null || true; done
   wait || true
 }
 trap 'cleanup; exit 0' TERM INT
