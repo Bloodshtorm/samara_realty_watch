@@ -1161,10 +1161,21 @@
       filterShell.removeAttribute("open");
     }
     const map = L.map("map", { scrollWheelZoom: false }).setView(mapCenter, 11);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    const tileLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
+    tileLayer.on("tileerror", (event) => {
+      const tile = event.tile;
+      const retryCount = Number(tile.dataset.retryCount || 0);
+      if (retryCount >= 2) {
+        return;
+      }
+      tile.dataset.retryCount = String(retryCount + 1);
+      window.setTimeout(() => {
+        tile.src = `${event.url}${event.url.includes("?") ? "&" : "?"}retry=${retryCount + 1}`;
+      }, 800 * (retryCount + 1));
+    });
     const markerLayer = L.layerGroup().addTo(map);
     const clusterGridSize = 54;
     const clusterMaxZoom = 16;
