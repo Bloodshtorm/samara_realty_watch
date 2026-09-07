@@ -20,6 +20,9 @@
 
 The project currently runs directly from a Python virtual environment on `lan-dev`.
 
+The LAN database is SQLite (`sqlite+aiosqlite`), stored at
+`/home/bs/soft/github/samara_realty_watch/data/realty.sqlite3`.
+
 - Python venv: `/home/bs/soft/github/samara_realty_watch/.venv`
 - Web service: `samara-realty-web.service`
 - Collector timer: `samara-realty-collector.timer`
@@ -108,6 +111,34 @@ git push origin <branch>
 Then deploy from git on `lan-dev` using the normal deploy section. Avoid direct `scp` deploys except for emergency debugging; if `scp` is used, commit and push the same change promptly.
 
 ## Collector Commands
+
+### MVP Storage Policy
+
+- Keep full source JSON only on the current listing, not in observation history.
+- Observations store time, price, active status and title. Save description snapshots only
+  when the description changes; remove these snapshots after 7 days.
+- At the start of each collection cycle, keep observations for 30 days plus the first and
+  last observation for every listing/search pair. These boundary rows preserve the initial
+  price and search-context membership even for sources that are no longer collected.
+- Keep price changes, current listings, search contexts and user flags. Observation counts
+  describe retained observations, not the lifetime number of collection events.
+- Remove finished collector run records after 30 days; never prune runs marked `started`.
+- SQLite reuses freed pages. Do not run a blocking `VACUUM` on each collection cycle.
+
+For a one-time MVP reset of redundant history, stop the web service, timer and collector.
+Then run from the deploy directory:
+
+```bash
+.venv/bin/python -m scripts.compact_database data/realty.sqlite3
+.venv/bin/python -m scripts.compact_database data/realty.sqlite3 --apply
+```
+
+The first command is a dry run. `--apply` creates and verifies a compressed SQLite backup
+next to the database (`realty.sqlite3.before-mvp-compact-<UTC timestamp>.gz`), keeps only
+first/last observations per listing/search, removes historical JSON/description snapshots,
+then runs `VACUUM`, integrity and foreign-key checks. Current listings, prices, searches,
+user flags, browser profile and runtime config are preserved. Allow at least 3x the database
+size in free disk space. Restart the web service and timer afterward, including on failure.
 
 Run all enabled searches:
 

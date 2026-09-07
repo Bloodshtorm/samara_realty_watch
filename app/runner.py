@@ -15,6 +15,7 @@ from collectors import COLLECTORS
 from collectors.debug import setup_debug
 from services.ingestion import upsert_listing
 from services.normalization import should_exclude_listing
+from services.retention import prune_history
 from services.scoring import MarketStats, score_listing
 from services.search_contexts import sync_contexts_from_config
 from services.telegram import format_error_message, send_telegram
@@ -67,6 +68,9 @@ async def collect_once(
     session_factory = create_session_factory(engine)
     scoring_config = load_yaml(settings.scoring_config_path)
     search_config = load_search_config(settings.searches_config_path)
+    async with session_factory() as session:
+        async with session.begin():
+            await prune_history(session)
     async with session_factory() as session:
         async with session.begin():
             contexts = await sync_contexts_from_config(session, settings.searches_config_path)
@@ -176,9 +180,7 @@ async def collect_once(
                         run_in_db.debug_screenshot_path = getattr(
                             collector, "last_debug_screenshot_path", None
                         )
-                        run_in_db.debug_html_path = getattr(
-                            collector, "last_debug_html_path", None
-                        )
+                        run_in_db.debug_html_path = getattr(collector, "last_debug_html_path", None)
                         db_search.last_status = "failed"
                         db_search.last_error = str(exc)
                         await send_telegram(settings, format_error_message(search.source, str(exc)))

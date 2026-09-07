@@ -33,6 +33,7 @@ async def upsert_listing(
     created = listing is None
     price_changed = False
     old_price = None
+    description_changed = listing is None or listing.description != parsed.description
 
     if created:
         listing = Listing(
@@ -108,8 +109,9 @@ async def upsert_listing(
             price_per_m2=price_per_m2,
             is_active=True,
             title_snapshot=parsed.title,
-            description_snapshot=parsed.description,
-            raw_payload=parsed.raw_payload,
+            description_snapshot=parsed.description if description_changed else None,
+            # Keep source JSON only on the current listing, never on every observation.
+            raw_payload=None,
         )
     )
     await session.flush()
