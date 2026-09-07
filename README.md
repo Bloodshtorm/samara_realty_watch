@@ -56,12 +56,19 @@ git push origin <branch>
 ssh bs@192.168.0.246
 cd /home/bs/soft/github/samara_realty_watch
 git pull --ff-only
-systemctl --user restart samara-realty-web.service
+sudo docker compose -f compose.lan.yml build web browser-auth
+sudo docker compose -f compose.lan.yml stop scheduler
+sudo docker compose -f compose.lan.yml up -d --wait --force-recreate browser-auth web
+sudo docker compose -f compose.lan.yml --profile collect up -d --force-recreate scheduler
 ```
 
 Не используйте прямое копирование файлов на сервер как основной deploy. `scp` допустим для быстрой диагностики, но после него ту же правку нужно закоммитить и запушить.
 
-На свежем Debian-сервере можно подготовить системные prerequisites, `.venv`, локальные конфиги и сразу прогнать проверки:
+LAN использует SQLite и отдельный `compose.lan.yml`. Первичный перенос профиля и проверка
+авторизации обязательны до запуска scheduler; порядок и откат описаны в OPERATIONS.md.
+Исходный PostgreSQL Compose остаётся отдельным вариантом для разработки.
+
+Для прежнего Python-варианта на свежем Debian можно подготовить prerequisites и `.venv`:
 
 ```bash
 cd ~/soft/github/samara_realty_watch

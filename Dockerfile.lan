@@ -1,7 +1,9 @@
-FROM mcr.microsoft.com/playwright/python:v1.61.0-noble AS application
+FROM mcr.microsoft.com/playwright/python:v1.61.0-noble AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HOME=/home/pwuser
 WORKDIR /app
-COPY pyproject.toml alembic.ini ./
+
+FROM runtime AS application
+COPY pyproject.toml alembic.ini compose.lan.yml Dockerfile.lan .dockerignore ./
 COPY app ./app
 COPY collectors ./collectors
 COPY services ./services
@@ -12,7 +14,7 @@ RUN pip install ".[dev]" && chmod +x /app/scripts/container-*.sh
 USER 1000:1000
 CMD ["uvicorn", "app.web:app", "--host", "0.0.0.0", "--port", "8000"]
 
-FROM application AS browser
+FROM runtime AS browser
 USER root
 ARG CHROME_VERSION=152.0.7977.64-1
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -22,5 +24,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && printf '%s\n' 'deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main' > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update && apt-get install -y --no-install-recommends "google-chrome-stable=${CHROME_VERSION}" \
     && rm -rf /var/lib/apt/lists/*
+COPY scripts/container-browser.sh /app/scripts/container-browser.sh
 USER 1000:1000
 CMD ["bash", "/app/scripts/container-browser.sh"]

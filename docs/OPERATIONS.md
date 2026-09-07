@@ -14,11 +14,13 @@
 - Deploy path on LAN server: `/home/bs/soft/github/samara_realty_watch`
 - Web UI: `http://192.168.0.246:8000/`
 - noVNC URL: `http://192.168.0.246:6080/vnc.html`
-- Browser CDP endpoint on server: `http://127.0.0.1:9222`
+- Browser CDP endpoint: `http://127.0.0.1:9222` inside the browser container network namespace only.
 
 ## Runtime
 
-The project currently runs directly from a Python virtual environment on `lan-dev`.
+The LAN runtime uses `sudo docker compose -f compose.lan.yml` (project `samara-realty-lan`).
+Docker Engine starts at boot; run Docker through sudo, not a newly granted docker group.
+The old Python/systemd setup is retained only for rollback and must not run concurrently.
 
 The LAN database is SQLite (`sqlite+aiosqlite`), stored at
 `/home/bs/soft/github/samara_realty_watch/data/realty.sqlite3`.
@@ -27,19 +29,25 @@ The LAN database is SQLite (`sqlite+aiosqlite`), stored at
 - Web service: `samara-realty-web.service`
 - Collector timer: `samara-realty-collector.timer`
 - Collector service: `samara-realty-collector.service`
-- Browser profile: `/home/bs/soft/github/samara_realty_watch/data/browser-profile`
+- Original rollback browser profile: `/home/bs/soft/github/samara_realty_watch/data/browser-profile`
+- Container browser profile: `/home/bs/soft/github/samara_realty_watch/data/browser-profile-docker`
 - Runtime config: `/home/bs/soft/github/samara_realty_watch/config/searches.yaml`
 - Debug HTML: `/home/bs/soft/github/samara_realty_watch/data/debug/html`
 - Debug screenshots: `/home/bs/soft/github/samara_realty_watch/data/debug/screenshots`
 
-Docker Compose remains supported for local/container workflows, but the LAN server deploy process below uses git plus user systemd unless this file is updated.
+The original `docker-compose.yml` is the separate PostgreSQL/local workflow, not the LAN stack.
+LAN services are `web`, `browser-auth`, `scheduler`; `collector` is one-shot only.
+SQLite uses a directory bind mount `./data:/app/data`, including SQLite sidecar files.
+The original `.env` is retained; Compose explicitly overrides host-only paths.
+Config is read-only. Browser password and auth URLs are read-only mounts from
+`/home/bs/.config/samara-realty-watch/`; never print or commit them.
 
 ## SLA
 
 This is a personal LAN service, not a public production system.
 
 - Target availability: always reachable over LAN SSH and web UI.
-- Collector cadence: every 2 hours via user systemd timer.
+- Collector cadence: every 2 hours via the container scheduler; a shared file lock prevents overlapping manual/scheduled runs.
 - Web UI recovery target: restart service immediately after deploy or failure.
 - Data safety: do not delete SQLite/PostgreSQL/runtime data unless the user explicitly asks.
 - Browser sessions: preserve `data/browser-profile`; it contains the source-site login state.
@@ -60,8 +68,11 @@ ssh bs@192.168.0.246 "
   .venv/bin/python -m pytest &&
   .venv/bin/python -m ruff check . &&
   .venv/bin/python -m mypy app collectors services &&
-  systemctl --user restart samara-realty-web.service &&
-  systemctl --user status samara-realty-web.service --no-pager
+  sudo docker compose -f compose.lan.yml build web browser-auth &&
+  sudo docker compose -f compose.lan.yml stop scheduler &&
+  sudo docker compose -f compose.lan.yml up -d --wait --force-recreate browser-auth web &&
+  sudo docker compose -f compose.lan.yml --profile collect up -d --force-recreate scheduler &&
+  sudo docker compose -f compose.lan.yml ps
 "
 ```
 
@@ -70,11 +81,53 @@ Check the web UI:
 ```bash
 ssh bs@192.168.0.246 "cd /home/bs/soft/github/samara_realty_watch && .venv/bin/python - <<'PY'
 from urllib.request import urlopen
-print(urlopen('http://127.0.0.1:8000/', timeout=10).status)
+print(urlopen('http://192.168.0.246:8000/healthz', timeout=10).status)
 PY"
 ```
 
-## Docker Compose Deploy
+## LAN Cutover And Recovery
+
+Normal deploy above assumes authentication was accepted. During the first cutover or an
+authentication incident, leave the `collect` profile stopped until live validation succeeds.
+Scheduler and manual collector share the browser network namespace, so recreate them after
+recreating the browser container. Never publish CDP (9222) or raw VNC (5900).
+
+Install Docker using `bash scripts/install-docker-debian.sh` on Debian 13. Build and run the
+test suite before stopping the old runtime. Then disable the old collector timer, wait for
+the running collection to finish, stop the old web and browser services, and make verified
+SQLite/profile/config backups under `data/backups/`. Copy the stopped browser profile to
+`data/browser-profile-docker`, owned by UID/GID 1000. Do not downgrade Chrome or share one
+profile between running browsers. Chrome's sandbox remains enabled; `scripts/docker-seccomp.json`
+is the unmodified Playwright v1.61.0 profile from
+https://github.com/microsoft/playwright/blob/v1.61.0/utils/docker/seccomp_profile.json.
+
+Start `browser-auth web` only and check `/healthz`, noVNC, data counts, old listing links,
+and a controlled existing search for each enabled source. Reauthenticate through noVNC if
+needed. Only after non-zero useful results enable the scheduler with the collect profile.
+Disable old `samara-realty-web.service`, `samara-realty-browser-auth.service`, and
+`samara-realty-collector.timer` autostart, retaining their unit files and venv for rollback.
+
+Rollback: stop all LAN containers with `sudo docker compose -f compose.lan.yml --profile collect
+--profile manual down` (never `--volumes`); re-enable/start the old browser, web and collector
+timer. They use the original profile and the same SQLite. Do not overwrite newer database
+changes with a backup unless corruption actually requires recovery.
+
+Container logs rotate at 10 MiB with three files each. No secrets, databases, backups or
+profiles are included in build context or image layers. `/healthz` returns 200/503 without
+database error details. Check statuses and logs after every deploy:
+
+```bash
+sudo docker compose -f compose.lan.yml ps
+sudo docker compose -f compose.lan.yml logs --tail=100 web browser-auth scheduler
+sudo docker compose -f compose.lan.yml run --rm --no-deps collector --search <existing-search-name>
+```
+
+Manual collection uses the same lock as the scheduler and exits 75 if busy. The scheduler
+runs immediately at startup, then every 7200 seconds from the prior start (no overlap).
+Stop the scheduler and wait for active manual collectors before migrations/DB maintenance.
+Use the existing verified database backup tooling; browser backups require a stopped browser.
+
+## Legacy PostgreSQL Compose Deploy
 
 Use Docker Compose only if the server is intentionally running compose services.
 
@@ -172,19 +225,19 @@ size in free disk space. Restart the web service and timer afterward, including 
 Run all enabled searches:
 
 ```bash
-ssh bs@192.168.0.246 "cd /home/bs/soft/github/samara_realty_watch && .venv/bin/python -m app collect"
+ssh bs@192.168.0.246 "cd /home/bs/soft/github/samara_realty_watch && sudo docker compose -f compose.lan.yml run --rm --no-deps collector"
 ```
 
 Run one source:
 
 ```bash
-ssh bs@192.168.0.246 "cd /home/bs/soft/github/samara_realty_watch && .venv/bin/python -m app collect --source avito"
+ssh bs@192.168.0.246 "cd /home/bs/soft/github/samara_realty_watch && sudo docker compose -f compose.lan.yml run --rm --no-deps collector --source avito"
 ```
 
 Run one named search:
 
 ```bash
-ssh bs@192.168.0.246 "cd /home/bs/soft/github/samara_realty_watch && .venv/bin/python -m app collect --search avito_samara_dacha_watch_8250141503"
+ssh bs@192.168.0.246 "cd /home/bs/soft/github/samara_realty_watch && sudo docker compose -f compose.lan.yml run --rm --no-deps collector --search avito_samara_dacha_watch_8250141503"
 ```
 
 Check collector history in the web UI:
@@ -194,10 +247,10 @@ Check collector history in the web UI:
 Or from the server:
 
 ```bash
-ssh bs@192.168.0.246 "journalctl --user -u samara-realty-collector.service -n 200 --no-pager"
+ssh bs@192.168.0.246 "cd /home/bs/soft/github/samara_realty_watch && sudo docker compose -f compose.lan.yml logs --tail=200 scheduler"
 ```
 
-## Browser Auth And CDP
+## Legacy Host Browser Auth (Rollback Only)
 
 For Avito, Cian, Domclick and other sources with bot checks or login state:
 

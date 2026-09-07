@@ -1207,10 +1207,15 @@ async def duplicates_page(
         await session.scalars(select(ApartmentGroup).where(ApartmentGroup.needs_review.is_(True)))
     ).all()
     return templates.TemplateResponse(
-        request, "duplicates.html", {
-            "pairs": pairs, "status": status, "reviews": reviews,
-            "group_id": group_id, "page": page,
-        }
+        request,
+        "duplicates.html",
+        {
+            "pairs": pairs,
+            "status": status,
+            "reviews": reviews,
+            "group_id": group_id,
+            "page": page,
+        },
     )
 
 
