@@ -5,7 +5,7 @@
 This repository is a Python 3.12 personal realty monitoring service for Samara apartment listings.
 
 - `app/` contains CLI entrypoints, FastAPI web UI, Jinja templates, settings, logging, DB setup, SQLAlchemy models, and the collection runner.
-- `collectors/` contains source adapters. `yandex_realty.py` has the first implemented path; `domclick.py`, `cian.py`, and `avito.py` are safe adapter skeletons.
+- `collectors/` contains source adapters. Active collectors include `yandex_realty`, `mirkvartir`, `n1`, and `etagi`; `domclick`, `cian`, and `avito` require browser profile/noVNC validation before enabling.
 - `services/` contains domain logic: ingestion, normalization, scoring, analytics, mortgage math, deduplication, stats, reporting, and debug artifacts.
 - `migrations/` contains Alembic migrations.
 - `tests/` contains unit tests and `tests/fixtures/` contains saved HTML fixtures.
@@ -40,7 +40,7 @@ When Docker image download is slow, use a temporary Python container for non-bro
 
 ## Coding Style & Naming Conventions
 
-Use 4-space indentation, type hints, and small focused modules. Prefer async SQLAlchemy APIs for DB work. Keep source names stable: `yandex_realty`, `domclick`, `cian`, `avito`. Use `snake_case` for functions, variables, config keys, and CLI options. Run `ruff format` before committing.
+Use 4-space indentation, type hints, and small focused modules. Prefer async SQLAlchemy APIs for DB work. Keep source names stable: `yandex_realty`, `mirkvartir`, `n1`, `etagi`, `domclick`, `cian`, `avito`. Use `snake_case` for functions, variables, config keys, and CLI options. Run `ruff format` before committing.
 
 ## Testing Guidelines
 

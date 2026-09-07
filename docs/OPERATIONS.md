@@ -8,6 +8,7 @@
 - Git remote: `git@github.com:Bloodshtorm/samara_realty_watch.git`
 - Main branch: `main`
 - Active feature branch: `feature/search-contexts-map-timeline`
+- Deploy branch: `feature/search-contexts-map-timeline`
 - LAN server SSH host: `bs@192.168.0.246`
 - LAN server alias: `lan-dev`
 - Deploy path on LAN server: `/home/bs/soft/github/samara_realty_watch`
