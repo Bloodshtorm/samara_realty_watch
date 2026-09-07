@@ -7,8 +7,8 @@
 - Local workspace: `D:\dev\samara_realty_watch`
 - Git remote: `git@github.com:Bloodshtorm/samara_realty_watch.git`
 - Main branch: `main`
-- Active feature branch: `feature/search-contexts-map-timeline`
-- Deploy branch: `feature/search-contexts-map-timeline`
+- Active feature branch: task-specific; read the current local branch before work.
+- Deploy branch: task-specific; deploy the current feature branch to LAN for validation, then merge/push to `main` only after the user accepts the result.
 - LAN server SSH host: `bs@192.168.0.246`
 - LAN server alias: `lan-dev`
 - Deploy path on LAN server: `/home/bs/soft/github/samara_realty_watch`
@@ -44,17 +44,22 @@ This is a personal LAN service, not a public production system.
 
 ## Normal Deploy
 
-Use this path after code is committed and pushed.
+Use this path after code is committed and pushed. Deploy the current task branch, not a hard-coded branch. On the server, fetch and checkout the same branch that was pushed from the laptop.
 
 ```bash
-ssh bs@192.168.0.246
-cd /home/bs/soft/github/samara_realty_watch
-git pull --ff-only
-.venv/bin/python -m pytest
-.venv/bin/python -m ruff check .
-.venv/bin/python -m mypy app collectors services
-systemctl --user restart samara-realty-web.service
-systemctl --user status samara-realty-web.service --no-pager
+BRANCH="$(git branch --show-current)"
+git push origin "$BRANCH"
+ssh bs@192.168.0.246 "
+  cd /home/bs/soft/github/samara_realty_watch &&
+  git fetch origin &&
+  git checkout '$BRANCH' &&
+  git pull --ff-only origin '$BRANCH' &&
+  .venv/bin/python -m pytest &&
+  .venv/bin/python -m ruff check . &&
+  .venv/bin/python -m mypy app collectors services &&
+  systemctl --user restart samara-realty-web.service &&
+  systemctl --user status samara-realty-web.service --no-pager
+"
 ```
 
 Check the web UI:
@@ -71,13 +76,18 @@ PY"
 Use Docker Compose only if the server is intentionally running compose services.
 
 ```bash
-ssh bs@192.168.0.246
-cd /home/bs/soft/github/samara_realty_watch
-git pull --ff-only
-docker compose build web scheduler collector
-docker compose up -d postgres web scheduler
-docker compose ps
-docker compose logs --tail=100 web scheduler
+BRANCH="$(git branch --show-current)"
+git push origin "$BRANCH"
+ssh bs@192.168.0.246 "
+  cd /home/bs/soft/github/samara_realty_watch &&
+  git fetch origin &&
+  git checkout '$BRANCH' &&
+  git pull --ff-only origin '$BRANCH' &&
+  docker compose build web scheduler collector &&
+  docker compose up -d postgres web scheduler &&
+  docker compose ps &&
+  docker compose logs --tail=100 web scheduler
+"
 ```
 
 ## Development Workflow
