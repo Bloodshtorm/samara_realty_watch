@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlencode
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from pydantic import BaseModel, Field
@@ -26,6 +26,7 @@ from app.config import Settings
 from app.db import create_engine, create_session_factory
 from app.models import (
     ApartmentGroup,
+    ApartmentUserState,
     Base,
     CollectorRun,
     Listing,
@@ -35,6 +36,8 @@ from app.models import (
     PriceHistory,
     Search,
     SearchContext,
+    User,
+    UserSession,
 )
 from app.reporting_format import format_dt, format_m2, format_percent, format_rub
 from services.analytics import (
@@ -46,6 +49,14 @@ from services.analytics import (
     segment_key,
 )
 from services.apartments import confirm_link, group_members, split_member
+from services.auth import (
+    SESSION_COOKIE_NAME,
+    bootstrap_admin,
+    create_user_session,
+    hash_password,
+    hash_session_token,
+    verify_password,
+)
 from services.search_contexts import sync_contexts_from_config
 
 PAGE_SIZE = 100
@@ -135,6 +146,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with session_factory() as session:
         async with session.begin():
             await sync_contexts_from_config(session, settings.searches_config_path)
+            await bootstrap_admin(session, settings)
     try:
         yield
     finally:
@@ -205,6 +217,46 @@ FILTERS_DEP = Depends(parse_filters)
 SESSION_DEP = Depends(db_session)
 
 
+async def current_user(request: Request, session: AsyncSession = SESSION_DEP) -> User:
+    user_count = await session.scalar(select(func.count()).select_from(User))
+    if not user_count:
+        raise HTTPException(
+            status_code=503,
+            detail="Set APP_ADMIN_USERNAME and APP_ADMIN_PASSWORD to bootstrap the first admin.",
+        )
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=303, headers={"Location": _login_url(request)})
+    now = datetime.now(UTC)
+    row = (
+        await session.execute(
+            select(UserSession, User)
+            .join(User, User.id == UserSession.user_id)
+            .where(UserSession.token_hash == hash_session_token(token))
+            .where(UserSession.expires_at > now)
+            .where(User.is_active.is_(True))
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=303, headers={"Location": _login_url(request)})
+    user_session, user = row
+    user_session.last_seen_at = now
+    await session.commit()
+    return user
+
+
+USER_DEP = Depends(current_user)
+
+
+async def current_admin(user: User = USER_DEP) -> User:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin role is required")
+    return user
+
+
+ADMIN_DEP = Depends(current_admin)
+
+
 @app.get("/healthz", include_in_schema=False)
 async def healthz(session: AsyncSession = SESSION_DEP) -> JSONResponse:
     try:
@@ -212,6 +264,172 @@ async def healthz(session: AsyncSession = SESSION_DEP) -> JSONResponse:
     except SQLAlchemyError:
         return JSONResponse({"status": "unavailable"}, status_code=503)
     return JSONResponse({"status": "ok"})
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, session: AsyncSession = SESSION_DEP) -> HTMLResponse:
+    has_users = bool(await session.scalar(select(func.count()).select_from(User)))
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "next": request.query_params.get("next", "/"),
+            "error": None,
+            "has_users": has_users,
+        },
+    )
+
+
+@app.post("/login")
+async def login_submit(
+    request: Request, session: AsyncSession = SESSION_DEP
+) -> Response:
+    body = (await request.body()).decode()
+    form = parse_qs(body, keep_blank_values=True)
+    username = _form_value(form, "username").lower()
+    password = _form_value(form, "password")
+    next_url = _safe_next(_form_value(form, "next") or "/")
+    user = (
+        await session.execute(select(User).where(func.lower(User.username) == username))
+    ).scalar_one_or_none()
+    if user is None or not user.is_active or not verify_password(password, user.password_hash):
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {
+                "next": next_url,
+                "error": "Неверный логин или пароль.",
+                "has_users": bool(await session.scalar(select(func.count()).select_from(User))),
+            },
+            status_code=401,
+        )
+    settings = Settings()
+    _, token = await create_user_session(session, user, days=settings.app_session_days)
+    await session.commit()
+    response = RedirectResponse(next_url, status_code=303)
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        token,
+        max_age=settings.app_session_days * 24 * 60 * 60,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+@app.get("/logout")
+@app.post("/logout")
+async def logout(request: Request, session: AsyncSession = SESSION_DEP) -> RedirectResponse:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if token:
+        user_session = (
+            await session.execute(
+                select(UserSession).where(UserSession.token_hash == hash_session_token(token))
+            )
+        ).scalar_one_or_none()
+        if user_session is not None:
+            await session.delete(user_session)
+            await session.commit()
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    return response
+
+
+@app.get("/admin/users", response_class=HTMLResponse)
+async def admin_users_page(
+    request: Request,
+    session: AsyncSession = SESSION_DEP,
+    admin: User = ADMIN_DEP,
+) -> HTMLResponse:
+    users = (
+        await session.execute(select(User).order_by(User.created_at, User.username))
+    ).scalars().all()
+    return templates.TemplateResponse(
+        request,
+        "admin_users.html",
+        {"users": users, "current_user": admin, "error": None},
+    )
+
+
+@app.post("/admin/users")
+async def admin_create_user(
+    request: Request,
+    session: AsyncSession = SESSION_DEP,
+    _admin: User = ADMIN_DEP,
+) -> Response:
+    body = (await request.body()).decode()
+    form = parse_qs(body, keep_blank_values=True)
+    username = _form_value(form, "username").lower()
+    display_name = _form_value(form, "display_name") or username
+    password = _form_value(form, "password")
+    role = _form_value(form, "role") or "user"
+    if not username or not password:
+        return await _admin_users_error(request, session, "Логин и пароль обязательны.")
+    if role not in {"admin", "user"}:
+        return await _admin_users_error(request, session, "Некорректная роль.")
+    exists_user = (
+        await session.execute(select(User).where(func.lower(User.username) == username))
+    ).scalar_one_or_none()
+    if exists_user is not None:
+        return await _admin_users_error(request, session, "Пользователь уже существует.")
+    session.add(
+        User(
+            username=username,
+            display_name=display_name,
+            role=role,
+            password_hash=hash_password(password),
+            is_active=True,
+        )
+    )
+    await session.commit()
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+@app.post("/admin/users/{user_id}/password")
+async def admin_reset_password(
+    user_id: UUID,
+    request: Request,
+    session: AsyncSession = SESSION_DEP,
+    _admin: User = ADMIN_DEP,
+) -> RedirectResponse:
+    body = (await request.body()).decode()
+    password = _form_value(parse_qs(body, keep_blank_values=True), "password")
+    if not password:
+        raise HTTPException(status_code=422, detail="password is required")
+    user = await session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = hash_password(password)
+    sessions = (
+        await session.scalars(select(UserSession).where(UserSession.user_id == user.id))
+    ).all()
+    for user_session in sessions:
+        await session.delete(user_session)
+    await session.commit()
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+@app.post("/admin/users/{user_id}/state")
+async def admin_user_state(
+    user_id: UUID,
+    action: str = Query(pattern="^(enable|disable)$"),
+    session: AsyncSession = SESSION_DEP,
+    admin: User = ADMIN_DEP,
+) -> RedirectResponse:
+    user = await session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.id == admin.id and action == "disable":
+        raise HTTPException(status_code=409, detail="Cannot disable current admin")
+    user.is_active = action == "enable"
+    if not user.is_active:
+        sessions = (
+            await session.scalars(select(UserSession).where(UserSession.user_id == user.id))
+        ).all()
+        for user_session in sessions:
+            await session.delete(user_session)
+    await session.commit()
+    return RedirectResponse("/admin/users", status_code=303)
 
 
 def _optional_int(
@@ -260,21 +478,78 @@ def _optional_float(
     return parsed
 
 
+def _optional_rule_text(rules: dict, name: str) -> str | None:
+    value = rules.get(name)
+    if not isinstance(value, str):
+        return None
+    return _optional_text(value)
+
+
+def _optional_rule_int(rules: dict, name: str) -> int | None:
+    value = rules.get(name)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return _optional_int(name, value, minimum=0)
+    return None
+
+
+def _optional_rule_float(rules: dict, name: str) -> float | None:
+    value = rules.get(name)
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        return _optional_float(name, value, minimum=0)
+    return None
+
+
+def _safe_next(value: str) -> str:
+    if not value.startswith("/") or value.startswith("//"):
+        return "/"
+    return value
+
+
+def _login_url(request: Request) -> str:
+    next_url = str(request.url.path)
+    if request.url.query:
+        next_url = f"{next_url}?{request.url.query}"
+    return "/login?" + urlencode({"next": _safe_next(next_url)})
+
+
+async def _admin_users_error(
+    request: Request, session: AsyncSession, error: str
+) -> HTMLResponse:
+    users = (
+        await session.execute(select(User).order_by(User.created_at, User.username))
+    ).scalars().all()
+    return templates.TemplateResponse(
+        request,
+        "admin_users.html",
+        {"users": users, "current_user": None, "error": error},
+        status_code=422,
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 async def listings_page(
     request: Request,
     filters: ListingFilters = FILTERS_DEP,
     session: AsyncSession = SESSION_DEP,
-) -> HTMLResponse:
-    contexts = await _contexts(session)
+    user: User = USER_DEP,
+) -> Response:
+    contexts = await _contexts(session, user)
+    if not contexts:
+        return RedirectResponse("/contexts/new", status_code=303)
     selected_context = _selected_context(contexts, filters.context)
     filters.context = selected_context.slug
-    stmt = _filtered_listings_query(filters, selected_context)
+    stmt = _filtered_listings_query(filters, selected_context, user)
     row_candidates = unique_apartments(list((await session.scalars(stmt)).all()))
     total = len(row_candidates)
-    row_context = await _table_rows_context(session, row_candidates, filters, selected_context)
+    row_context = await _table_rows_context(
+        session, row_candidates, filters, selected_context, user
+    )
     map_listings = row_candidates[:MAP_POINTS_LIMIT]
-    map_user_states = await _user_states(session, [item.id for item in map_listings])
+    map_user_states = await _user_states(session, [item.id for item in map_listings], user)
     districts = (await session.execute(_distinct_values(Listing.district))).scalars().all()
     sources = (await session.execute(_distinct_values(Listing.source))).scalars().all()
     last_run = (
@@ -307,6 +582,7 @@ async def listings_page(
             "sort_url": _sort_url,
             "view_url": _view_url,
             "context_url": _context_url,
+            "current_user": user,
         },
     )
 
@@ -317,17 +593,22 @@ async def spatial_listings(
     payload: SpatialFilterPayload,
     filters: ListingFilters = FILTERS_DEP,
     session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
 ) -> dict[str, object]:
-    contexts = await _contexts(session)
+    contexts = await _contexts(session, user)
+    if not contexts:
+        return {"total": 0, "shown": 0, "limit": PAGE_SIZE, "listing_ids": [], "rows_html": ""}
     selected_context = _selected_context(contexts, filters.context)
     filters.context = selected_context.slug
-    stmt = _spatial_listings_query(_filtered_listings_query(filters, selected_context), payload)
+    stmt = _spatial_listings_query(
+        _filtered_listings_query(filters, selected_context, user), payload
+    )
     candidates = list((await session.execute(stmt)).scalars().all())
     if payload.mode == "polygon":
         candidates = [item for item in candidates if _listing_in_polygon(item, payload.polygon)]
     candidates = unique_apartments(candidates)
     total = len(candidates)
-    row_context = await _table_rows_context(session, candidates, filters, selected_context)
+    row_context = await _table_rows_context(session, candidates, filters, selected_context, user)
     rows_html = templates.get_template("_listing_rows.html").render(
         request=request,
         filters=filters,
@@ -346,6 +627,7 @@ async def spatial_listings(
 async def collector_runs_page(
     request: Request,
     session: AsyncSession = SESSION_DEP,
+    _admin: User = ADMIN_DEP,
 ) -> HTMLResponse:
     rows = (
         await session.execute(
@@ -377,9 +659,12 @@ async def listing_detail(
     request: Request,
     listing_id: UUID,
     session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
 ) -> HTMLResponse:
     listing = await session.get(Listing, listing_id)
     if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if not await _listing_visible_to_user(session, listing, user):
         raise HTTPException(status_code=404, detail="Listing not found")
     observations = (
         (
@@ -394,7 +679,7 @@ async def listing_detail(
         .all()
     )
     stats = await listing_history_stats(session, [listing.id])
-    segments = build_market_segments(await _recent_market_listings(session, 180))
+    segments = build_market_segments(await _recent_market_listings(session, 180, None, user))
     listing_stats = stats.get(listing.id, ListingHistoryStats())
     recommendation = recommend_listing(
         listing,
@@ -423,13 +708,14 @@ async def listing_detail(
             "observations": observations,
             "price_changes": price_changes,
             "price_timeline": _price_timeline(list(reversed(observations))),
-            "user_state": await _user_state(session, listing.id),
+            "user_state": await _user_state(session, listing.id, user),
+            "current_user": user,
         },
     )
 
 
 @app.get("/contexts/new", response_class=HTMLResponse)
-async def new_context_page(request: Request) -> HTMLResponse:
+async def new_context_page(request: Request, user: User = USER_DEP) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "context_form.html",
@@ -440,6 +726,7 @@ async def new_context_page(request: Request) -> HTMLResponse:
                 "city": "Самара",
                 "radius_km": "50",
             },
+            "current_user": user,
         },
     )
 
@@ -448,6 +735,7 @@ async def new_context_page(request: Request) -> HTMLResponse:
 async def create_context(
     request: Request,
     session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
 ) -> RedirectResponse:
     body = (await request.body()).decode()
     form = parse_qs(body, keep_blank_values=True)
@@ -457,13 +745,14 @@ async def create_context(
     rooms_raw = _form_value(form, "expected_rooms")
     radius_raw = _form_value(form, "radius_km")
     sources = form.get("sources", [])
+    rules = _context_rules_from_form(form)
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     if object_type not in {"flat", "land"}:
         raise HTTPException(status_code=422, detail="object_type must be flat or land")
     expected_rooms = int(rooms_raw) if rooms_raw else None
     radius_km = float(radius_raw.replace(",", ".")) if radius_raw else None
-    slug = _slugify(name)
+    slug = await _unique_context_slug(session, _slugify(name))
     context = (
         await session.execute(select(SearchContext).where(SearchContext.slug == slug))
     ).scalar_one_or_none()
@@ -472,6 +761,7 @@ async def create_context(
     context = SearchContext(
         slug=slug,
         name=name,
+        owner_user_id=user.id,
         object_type=object_type,
         city=city,
         expected_rooms=expected_rooms,
@@ -479,7 +769,7 @@ async def create_context(
         center_longitude=50.100193,
         radius_km=radius_km,
         enabled=True,
-        rules={"created_from_ui": True},
+        rules=rules,
     )
     session.add(context)
     await session.flush()
@@ -510,23 +800,28 @@ async def update_listing_state(
     listing_id: UUID,
     action: str = Query(pattern="^(favorite|unfavorite|hide|unhide)$"),
     session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
 ) -> RedirectResponse:
     listing = await session.get(Listing, listing_id)
     if listing is None:
         raise HTTPException(status_code=404, detail="Listing not found")
+    if not await _listing_visible_to_user(session, listing, user):
+        raise HTTPException(status_code=404, detail="Listing not found")
 
     if listing.group_id:
-        group = await session.get(ApartmentGroup, listing.group_id)
-        assert group is not None
+        group_state = await _apartment_user_state(session, listing.group_id, user)
+        if group_state is None:
+            group_state = ApartmentUserState(user_id=user.id, group_id=listing.group_id)
+            session.add(group_state)
         if action in {"favorite", "unfavorite"}:
-            group.is_favorite = action == "favorite"
+            group_state.is_favorite = action == "favorite"
         else:
-            group.is_hidden = action == "hide"
+            group_state.is_hidden = action == "hide"
         await session.commit()
         return RedirectResponse(_local_return(request), status_code=303)
-    state = await _user_state(session, listing_id)
+    state = await _user_state(session, listing_id, user)
     if state is None:
-        state = ListingUserState(listing_id=listing_id)
+        state = ListingUserState(user_id=user.id, listing_id=listing_id)
         session.add(state)
 
     match action:
@@ -546,6 +841,7 @@ async def update_listing_state(
 def _filtered_listings_query(
     filters: ListingFilters,
     context: SearchContext,
+    user: User | None = None,
 ) -> Select[tuple[Listing]]:
     conditions = [
         Listing.is_active.is_(True),
@@ -554,6 +850,29 @@ def _filtered_listings_query(
     ]
     if context.expected_rooms is not None:
         conditions.append(Listing.rooms == context.expected_rooms)
+    rules = context.rules or {}
+    if filters.price_min is None and (price_min := _optional_rule_int(rules, "price_min")):
+        conditions.append(Listing.price_rub >= price_min)
+    if filters.price_max is None and (price_max := _optional_rule_int(rules, "price_max")):
+        conditions.append(Listing.price_rub <= price_max)
+    if filters.price_m2_max is None and (
+        price_m2_max := _optional_rule_int(rules, "price_m2_max")
+    ):
+        conditions.append(Listing.price_per_m2 <= price_m2_max)
+    if filters.area_min is None and (area_min := _optional_rule_float(rules, "area_min")):
+        conditions.append(Listing.area_total_m2 >= area_min)
+    if filters.area_max is None and (area_max := _optional_rule_float(rules, "area_max")):
+        conditions.append(Listing.area_total_m2 <= area_max)
+    if filters.floor_min is None and (floor_min := _optional_rule_int(rules, "floor_min")):
+        conditions.append(Listing.floor >= floor_min)
+    if filters.floor_max is None and (floor_max := _optional_rule_int(rules, "floor_max")):
+        conditions.append(Listing.floor <= floor_max)
+    if filters.floors_total_max is None and (
+        floors_total_max := _optional_rule_int(rules, "floors_total_max")
+    ):
+        conditions.append(Listing.floors_total <= floors_total_max)
+    if not filters.district and (district := _optional_rule_text(rules, "district")):
+        conditions.append(Listing.district == district)
     if filters.q:
         text_queries = {
             filters.q,
@@ -611,8 +930,8 @@ def _filtered_listings_query(
             .where(PriceHistory.observed_at >= changed_after)
         )
 
-    favorite = func.coalesce(ApartmentGroup.is_favorite, ListingUserState.is_favorite, False)
-    hidden = func.coalesce(ApartmentGroup.is_hidden, ListingUserState.is_hidden, False)
+    favorite = func.coalesce(ApartmentUserState.is_favorite, ListingUserState.is_favorite, False)
+    hidden = func.coalesce(ApartmentUserState.is_hidden, ListingUserState.is_hidden, False)
     match filters.view:
         case "favorites":
             conditions.extend([favorite.is_(True), hidden.is_(False)])
@@ -625,8 +944,20 @@ def _filtered_listings_query(
         select(Listing)
         .join(ListingObservation, ListingObservation.listing_id == Listing.id)
         .join(Search, ListingObservation.search_id == Search.id)
-        .outerjoin(ListingUserState, ListingUserState.listing_id == Listing.id)
-        .outerjoin(ApartmentGroup, ApartmentGroup.id == Listing.group_id)
+        .outerjoin(
+            ListingUserState,
+            and_(
+                ListingUserState.listing_id == Listing.id,
+                ListingUserState.user_id == user.id if user else true(),
+            ),
+        )
+        .outerjoin(
+            ApartmentUserState,
+            and_(
+                ApartmentUserState.group_id == Listing.group_id,
+                ApartmentUserState.user_id == user.id if user else true(),
+            ),
+        )
         .options(defer(Listing.raw_payload))
         .where(and_(*conditions))
         .distinct()
@@ -661,12 +992,13 @@ async def _table_rows_context(
     candidates: list[Listing],
     filters: ListingFilters,
     context: SearchContext,
+    user: User | None = None,
 ) -> TableRowsContext:
     candidates[:] = unique_apartments(candidates)
     candidate_ids = [item.id for item in candidates]
     candidate_stats = await listing_history_stats(session, candidate_ids)
     segments = build_market_segments(
-        await _recent_market_listings(session, filters.seen_days, context)
+        await _recent_market_listings(session, filters.seen_days, context, user)
     )
     candidate_recommendations = {
         item.id: recommend_listing(
@@ -686,7 +1018,7 @@ async def _table_rows_context(
         "listings": listings,
         "stats": {item.id: candidate_stats[item.id] for item in listings},
         "recommendations": {item.id: candidate_recommendations[item.id] for item in listings},
-        "user_states": await _user_states(session, [item.id for item in listings]),
+        "user_states": await _user_states(session, [item.id for item in listings], user),
         "apartments": await _apartment_summaries(session, listings),
     }
 
@@ -781,17 +1113,14 @@ def _distinct_values(column) -> Select[tuple[str]]:
     return select(column).where(column.is_not(None)).distinct().order_by(column)
 
 
-async def _contexts(session: AsyncSession) -> list[SearchContext]:
+async def _contexts(session: AsyncSession, user: User | None = None) -> list[SearchContext]:
+    stmt = select(SearchContext).where(SearchContext.enabled.is_(True))
+    if user is not None and user.role != "admin":
+        stmt = stmt.where(SearchContext.owner_user_id == user.id)
     return list(
         (
-            await session.execute(
-                select(SearchContext)
-                .where(SearchContext.enabled.is_(True))
-                .order_by(SearchContext.created_at, SearchContext.name)
-            )
-        )
-        .scalars()
-        .all()
+            await session.execute(stmt.order_by(SearchContext.created_at, SearchContext.name))
+        ).scalars()
     )
 
 
@@ -928,6 +1257,36 @@ def _form_value(form: dict[str, list[str]], name: str) -> str:
     return values[0].strip()
 
 
+def _context_rules_from_form(form: dict[str, list[str]]) -> dict[str, object]:
+    rules: dict[str, object] = {"created_from_ui": True}
+    for name in (
+        "price_min",
+        "price_max",
+        "price_m2_max",
+        "area_min",
+        "area_max",
+        "floor_min",
+        "floor_max",
+        "floors_total_max",
+        "district",
+    ):
+        value = _form_value(form, name)
+        if value:
+            rules[name] = value
+    return rules
+
+
+async def _unique_context_slug(session: AsyncSession, base_slug: str) -> str:
+    slug = base_slug
+    index = 2
+    while (
+        await session.execute(select(SearchContext.id).where(SearchContext.slug == slug))
+    ).scalar_one_or_none():
+        slug = f"{base_slug}_{index}"
+        index += 1
+    return slug
+
+
 def _slugify(value: str) -> str:
     mapping = {
         "а": "a",
@@ -999,40 +1358,82 @@ def _generated_search_url(source: str, object_type: str, rooms: int | None) -> s
     return None
 
 
-async def _user_state(session: AsyncSession, listing_id: UUID) -> ListingUserState | None:
-    return (await _user_states(session, [listing_id])).get(listing_id)
+async def _user_state(
+    session: AsyncSession, listing_id: UUID, user: User | None = None
+) -> ListingUserState | None:
+    return (await _user_states(session, [listing_id], user)).get(listing_id)
 
 
 async def _user_states(
     session: AsyncSession,
     listing_ids: list[UUID],
+    user: User | None = None,
 ) -> dict[UUID, ListingUserState]:
     if not listing_ids:
         return {}
+    user_filter = ListingUserState.user_id == user.id if user else true()
     rows = (
         await session.execute(
-            select(ListingUserState).where(ListingUserState.listing_id.in_(listing_ids))
+            select(ListingUserState).where(
+                ListingUserState.listing_id.in_(listing_ids), user_filter
+            )
         )
     ).scalars()
     result = {state.listing_id: state for state in rows}
+    group_user_filter = ApartmentUserState.user_id == user.id if user else true()
     groups = (
         await session.execute(
-            select(Listing.id, ApartmentGroup)
-            .join(ApartmentGroup, ApartmentGroup.id == Listing.group_id)
+            select(Listing.id, ApartmentUserState)
+            .join(ApartmentUserState, ApartmentUserState.group_id == Listing.group_id)
             .where(Listing.id.in_(listing_ids))
+            .where(group_user_filter)
         )
     ).all()
-    for listing_id, group in groups:
+    for listing_id, group_state in groups:
         result[listing_id] = ListingUserState(
-            listing_id=listing_id, is_favorite=group.is_favorite, is_hidden=group.is_hidden
+            user_id=user.id if user else None,
+            listing_id=listing_id,
+            is_favorite=group_state.is_favorite,
+            is_hidden=group_state.is_hidden,
         )
     return result
+
+
+async def _apartment_user_state(
+    session: AsyncSession, group_id: UUID, user: User
+) -> ApartmentUserState | None:
+    return (
+        await session.execute(
+            select(ApartmentUserState).where(
+                ApartmentUserState.group_id == group_id,
+                ApartmentUserState.user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _listing_visible_to_user(session: AsyncSession, listing: Listing, user: User) -> bool:
+    if user.role == "admin":
+        return True
+    return bool(
+        await session.scalar(
+            select(func.count())
+            .select_from(ListingObservation)
+            .join(Search, ListingObservation.search_id == Search.id)
+            .join(SearchContext, Search.context_id == SearchContext.id)
+            .where(
+                ListingObservation.listing_id == listing.id,
+                SearchContext.owner_user_id == user.id,
+            )
+        )
+    )
 
 
 async def _recent_market_listings(
     session: AsyncSession,
     seen_days: int,
     context: SearchContext | None = None,
+    user: User | None = None,
 ) -> list[Listing]:
     cutoff = datetime.now(UTC) - timedelta(days=seen_days)
     conditions = [
@@ -1046,6 +1447,8 @@ async def _recent_market_listings(
         conditions.append(Search.context_id == context.id)
     if context is not None and context.expected_rooms is not None:
         conditions.append(Listing.rooms == context.expected_rooms)
+    if context is None and user is not None and user.role != "admin":
+        conditions.append(SearchContext.owner_user_id == user.id)
     return unique_apartments(
         list(
             (
@@ -1053,6 +1456,7 @@ async def _recent_market_listings(
                     select(Listing)
                     .join(ListingObservation, ListingObservation.listing_id == Listing.id)
                     .join(Search, ListingObservation.search_id == Search.id)
+                    .outerjoin(SearchContext, Search.context_id == SearchContext.id)
                     .where(*conditions)
                     .options(defer(Listing.raw_payload))
                     .order_by(Listing.price_rub.asc().nulls_last(), Listing.id)
@@ -1138,11 +1542,18 @@ def _local_return(request: Request) -> str:
 
 @app.get("/apartments/{group_id}", response_class=HTMLResponse)
 async def apartment_detail(
-    request: Request, group_id: UUID, session: AsyncSession = SESSION_DEP
+    request: Request,
+    group_id: UUID,
+    session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
 ) -> HTMLResponse:
     group = await session.get(ApartmentGroup, group_id)
     members = await group_members(session, group_id)
     if group is None or not members:
+        raise HTTPException(404, "Apartment not found")
+    if user.role != "admin" and not any(
+        [await _listing_visible_to_user(session, item, user) for item in members]
+    ):
         raise HTTPException(404, "Apartment not found")
     histories: dict[UUID, list[PriceHistory]] = {item.id: [] for item in members}
     for change in (
@@ -1161,13 +1572,18 @@ async def apartment_detail(
             "members": members,
             "histories": histories,
             "summary": (await _apartment_summaries(session, [members[0]]))[members[0].id],
+            "user_state": await _apartment_user_state(session, group_id, user),
+            "current_user": user,
         },
     )
 
 
 @app.post("/apartments/{group_id}/split")
 async def apartment_split(
-    group_id: UUID, listing_id: UUID, session: AsyncSession = SESSION_DEP
+    group_id: UUID,
+    listing_id: UUID,
+    session: AsyncSession = SESSION_DEP,
+    _admin: User = ADMIN_DEP,
 ) -> RedirectResponse:
     try:
         new_id = await split_member(session, group_id, listing_id)
@@ -1185,6 +1601,7 @@ async def duplicates_page(
     group_id: UUID | None = None,
     page: int = Query(1, ge=1),
     session: AsyncSession = SESSION_DEP,
+    _admin: User = ADMIN_DEP,
 ) -> HTMLResponse:
     a, b = aliased(Listing), aliased(Listing)
     pairs = (
@@ -1224,6 +1641,7 @@ async def duplicate_decision(
     link_id: UUID,
     action: str = Query(pattern="^(confirm|reject)$"),
     session: AsyncSession = SESSION_DEP,
+    _admin: User = ADMIN_DEP,
 ) -> RedirectResponse:
     link = await session.get(ListingLink, link_id)
     if link is None:

@@ -9,8 +9,8 @@
 {% if group.needs_review %}<p class="warning">Адрес или этаж изменился. Проверьте состав квартиры.</p>{% endif %}
 <div class="metrics"><div>Цена активных объявлений<strong>{{ summary.price }}</strong></div><div>Площадь<strong>{{ summary.area }}</strong></div></div>
 <div class="actions">
-<form method="post" action="/listings/{{ members[0].id }}/state?action={{ 'unfavorite' if group.is_favorite else 'favorite' }}"><button title="Избранное">{{ 'Убрать из избранного' if group.is_favorite else 'В избранное' }}</button></form>
-<form method="post" action="/listings/{{ members[0].id }}/state?action={{ 'unhide' if group.is_hidden else 'hide' }}"><button>{{ 'Вернуть в список' if group.is_hidden else 'Скрыть квартиру' }}</button></form>
+<form method="post" action="/listings/{{ members[0].id }}/state?action={{ 'unfavorite' if user_state and user_state.is_favorite else 'favorite' }}"><button title="Избранное">{{ 'Убрать из избранного' if user_state and user_state.is_favorite else 'В избранное' }}</button></form>
+<form method="post" action="/listings/{{ members[0].id }}/state?action={{ 'unhide' if user_state and user_state.is_hidden else 'hide' }}"><button>{{ 'Вернуть в список' if user_state and user_state.is_hidden else 'Скрыть квартиру' }}</button></form>
 </div></header>
 <h2>Объявления на площадках</h2>
 <div class="table-scroll"><table class="sources-table"><thead><tr><th>Площадка</th><th>Цена, ₽</th><th>Площадь, м²</th><th>Этаж</th><th>Последний раз</th><th>Статус</th><th></th></tr></thead><tbody>

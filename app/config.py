@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     screenshots_dir: Path = Path("/app/data/debug/screenshots")
     html_dumps_dir: Path = Path("/app/data/debug/html")
     log_level: str = "INFO"
+    app_admin_username: str | None = None
+    app_admin_password: str | None = None
+    app_admin_display_name: str | None = None
+    app_session_days: int = 30
 
 
 SourceName = Literal["yandex_realty", "domclick", "cian", "avito", "mirkvartir", "n1", "etagi"]

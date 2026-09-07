@@ -15,6 +15,7 @@ from app.models import (
     ListingUserState,
     Search,
     SearchContext,
+    User,
 )
 from app.web import (
     ListingFilters,
@@ -26,6 +27,7 @@ from app.web import (
     unique_apartments,
 )
 from services.apartments import candidate_pairs, confirm_link, reconcile_groups, split_member
+from services.auth import SESSION_COOKIE_NAME, create_user_session, hash_password
 from services.deduplication import building_key, compare_listings, is_flat
 
 DESCRIPTION = (
@@ -206,7 +208,18 @@ async def test_complete_link_not_transitive(factory):
 
 async def test_filters_routes_and_group_actions(factory):
     async with factory() as session, session.begin():
-        context = SearchContext(slug="3rooms_samara", name="Flats", expected_rooms=3)
+        admin = User(
+            username="admin",
+            display_name="Admin",
+            role="admin",
+            password_hash=hash_password("secret"),
+        )
+        session.add(admin)
+        await session.flush()
+        _, token = await create_user_session(session, admin, days=30)
+        context = SearchContext(
+            slug="3rooms_samara", name="Flats", expected_rooms=3, owner_user_id=admin.id
+        )
         session.add(context)
         await session.flush()
         search = Search(
@@ -247,6 +260,7 @@ async def test_filters_routes_and_group_actions(factory):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
+            client.cookies.set(SESSION_COOKIE_NAME, token)
             for route in ["/", "/duplicates", f"/apartments/{group_id}", f"/listings/{a.id}"]:
                 response = await client.get(route)
                 assert response.status_code == 200, response.text

@@ -18,6 +18,7 @@ x-app: &app
     SCREENSHOTS_DIR: /app/data/debug/screenshots
     HTML_DUMPS_DIR: /app/data/debug/html
     COLLECT_INTERVAL_SECONDS: "7200"
+    APP_SESSION_DAYS: "30"
   volumes:
     - ./data:/app/data
     - ./config:/app/config:ro

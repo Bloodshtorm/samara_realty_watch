@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import ApartmentGroup, Listing, ListingLink, ListingUserState
+from app.models import ApartmentGroup, ApartmentUserState, Listing, ListingLink, ListingUserState
 from services.deduplication import ALGORITHM_VERSION, building_key, compare_listings, is_flat
 
 
@@ -63,6 +63,22 @@ async def ensure_groups(session: AsyncSession, listings: list[Listing]) -> None:
             session.add(group)
             await session.flush()
             item.group_id = group.id
+            listing_states = (
+                await session.scalars(
+                    select(ListingUserState).where(ListingUserState.listing_id == item.id)
+                )
+            ).all()
+            for listing_state in listing_states:
+                if listing_state.user_id is not None:
+                    session.add(
+                        ApartmentUserState(
+                            user_id=listing_state.user_id,
+                            group_id=group.id,
+                            is_favorite=listing_state.is_favorite,
+                            is_hidden=listing_state.is_hidden,
+                            hidden_reason=listing_state.hidden_reason,
+                        )
+                    )
     await session.flush()
 
 
@@ -76,6 +92,7 @@ async def merge_groups(session: AsyncSession, left: UUID, right: UUID) -> UUID:
     target.is_favorite = target.is_favorite or source.is_favorite
     target.is_hidden = target.is_hidden and source.is_hidden
     target.needs_review = target.needs_review or source.needs_review
+    await _merge_user_states(session, left, right)
     for item in await group_members(session, right):
         item.group_id = left
     await session.flush()
@@ -210,6 +227,7 @@ async def split_member(session: AsyncSession, group_id: UUID, listing_id: UUID) 
     new = ApartmentGroup(is_favorite=group.is_favorite, is_hidden=group.is_hidden)
     session.add(new)
     await session.flush()
+    await _copy_user_states(session, group.id, new.id)
     for other in members:
         if other.id != item.id:
             await set_link(session, item, other, "rejected", "manual")
@@ -222,3 +240,44 @@ async def split_member(session: AsyncSession, group_id: UUID, listing_id: UUID) 
             group.needs_review = True
     await session.flush()
     return new.id
+
+
+async def _merge_user_states(session: AsyncSession, target_id: UUID, source_id: UUID) -> None:
+    source_states = (
+        await session.scalars(
+            select(ApartmentUserState).where(ApartmentUserState.group_id == source_id)
+        )
+    ).all()
+    for source_state in source_states:
+        target_state = (
+            await session.scalars(
+                select(ApartmentUserState).where(
+                    ApartmentUserState.group_id == target_id,
+                    ApartmentUserState.user_id == source_state.user_id,
+                )
+            )
+        ).one_or_none()
+        if target_state is None:
+            source_state.group_id = target_id
+            continue
+        target_state.is_favorite = target_state.is_favorite or source_state.is_favorite
+        target_state.is_hidden = target_state.is_hidden and source_state.is_hidden
+        await session.delete(source_state)
+
+
+async def _copy_user_states(session: AsyncSession, source_id: UUID, target_id: UUID) -> None:
+    states = (
+        await session.scalars(
+            select(ApartmentUserState).where(ApartmentUserState.group_id == source_id)
+        )
+    ).all()
+    for state in states:
+        session.add(
+            ApartmentUserState(
+                user_id=state.user_id,
+                group_id=target_id,
+                is_favorite=state.is_favorite,
+                is_hidden=state.is_hidden,
+                hidden_reason=state.hidden_reason,
+            )
+        )

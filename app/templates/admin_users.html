@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Пользователи · Samara Realty Watch</title>
+  <style>
+    :root { --bg: #eef2f6; --panel: #fff; --text: #19202a; --muted: #657080; --line: #d9dee7; --accent: #0f766e; --warn: #a15c07; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 40px; }
+    a { color: var(--accent); text-decoration: none; font-weight: 700; }
+    h1 { margin: 12px 0 16px; font-size: 28px; }
+    h2 { margin: 24px 0 10px; font-size: 18px; }
+    form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+    .create-form { display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)); gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+    label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+    input, select { min-height: 36px; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; color: var(--text); background: #fff; font: inherit; }
+    button { min-height: 36px; border: 1px solid var(--accent); border-radius: 6px; padding: 7px 12px; background: var(--accent); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+    button.secondary { background: #fff; color: var(--accent); }
+    button.warn { border-color: var(--warn); background: #fff; color: var(--warn); }
+    .table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    table { width: 100%; min-width: 820px; border-collapse: collapse; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #f4f6f8; color: #344054; font-size: 12px; text-transform: uppercase; }
+    .error { color: #b42318; font-weight: 700; margin-bottom: 10px; }
+    @media (max-width: 760px) { .create-form { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="/">← Объекты</a>
+    <h1>Пользователи</h1>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form class="create-form" method="post" action="/admin/users">
+      <label>Логин <input name="username" required></label>
+      <label>Имя <input name="display_name"></label>
+      <label>Пароль <input name="password" type="password" required></label>
+      <label>Роль
+        <select name="role">
+          <option value="user" selected>Пользователь</option>
+          <option value="admin">Админ</option>
+        </select>
+      </label>
+      <button type="submit">Создать</button>
+    </form>
+    <h2>Список</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Статус</th><th>Сброс пароля</th><th></th></tr></thead>
+        <tbody>
+          {% for user in users %}
+            <tr>
+              <td>{{ user.username }}</td>
+              <td>{{ user.display_name }}</td>
+              <td>{{ user.role }}</td>
+              <td>{{ 'Активен' if user.is_active else 'Отключен' }}</td>
+              <td>
+                <form method="post" action="/admin/users/{{ user.id }}/password">
+                  <input name="password" type="password" required placeholder="Новый пароль">
+                  <button class="secondary" type="submit">Сбросить</button>
+                </form>
+              </td>
+              <td>
+                <form method="post" action="/admin/users/{{ user.id }}/state?action={{ 'disable' if user.is_active else 'enable' }}">
+                  <button class="{{ 'warn' if user.is_active else 'secondary' }}" type="submit">{{ 'Отключить' if user.is_active else 'Включить' }}</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

@@ -33,6 +33,9 @@ class SearchContext(Base):
     __tablename__ = "search_contexts"
 
     id: Mapped[uuid.UUID] = uuid_pk()
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
     slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
     object_type: Mapped[str] = mapped_column(String(50), default="flat")
@@ -49,6 +52,40 @@ class SearchContext(Base):
     )
 
     searches: Mapped[list[Search]] = relationship(back_populates="context")
+    owner: Mapped[User | None] = relationship(back_populates="contexts")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(20), default="user", index=True)
+    password_hash: Mapped[str] = mapped_column(String(300))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    contexts: Mapped[list[SearchContext]] = relationship(back_populates="owner")
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+    __table_args__ = (UniqueConstraint("token_hash", name="uq_user_sessions_token_hash"),)
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped[User] = relationship()
 
 
 class Search(Base):
@@ -145,10 +182,37 @@ class Listing(Base):
 
 class ListingUserState(Base):
     __tablename__ = "listing_user_states"
-    __table_args__ = (UniqueConstraint("listing_id", name="uq_listing_user_state_listing_id"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "listing_id", name="uq_listing_user_state_user_listing"),
+    )
 
     id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     listing_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("listings.id", ondelete="CASCADE"))
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    hidden_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ApartmentUserState(Base):
+    __tablename__ = "apartment_user_states"
+    __table_args__ = (
+        UniqueConstraint("user_id", "group_id", name="uq_apartment_user_state_user_group"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("apartment_groups.id", ondelete="CASCADE"), index=True
+    )
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     hidden_reason: Mapped[str | None] = mapped_column(Text)

@@ -41,6 +41,9 @@ SQLite uses a directory bind mount `./data:/app/data`, including SQLite sidecar 
 The original `.env` is retained; Compose explicitly overrides host-only paths.
 Config is read-only. Browser password and auth URLs are read-only mounts from
 `/home/bs/.config/samara-realty-watch/`; never print or commit them.
+The web UI requires app users. Bootstrap the first admin through `.env` with
+`APP_ADMIN_USERNAME`, `APP_ADMIN_PASSWORD`, and optional `APP_ADMIN_DISPLAY_NAME`;
+after the first user exists, manage users at `/admin/users`.
 
 ## SLA
 
@@ -65,6 +68,7 @@ ssh bs@192.168.0.246 "
   git fetch origin &&
   git checkout '$BRANCH' &&
   git pull --ff-only origin '$BRANCH' &&
+  .venv/bin/python -m alembic upgrade head &&
   .venv/bin/python -m pytest &&
   .venv/bin/python -m ruff check . &&
   .venv/bin/python -m mypy app collectors services &&

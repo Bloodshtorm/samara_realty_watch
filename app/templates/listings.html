@@ -903,6 +903,11 @@
           Последний сбор: {{ last_run.started_at|dt }} · {{ last_run.status }}
         </a>
       {% endif %}
+      <div class="muted">
+        {{ current_user.display_name }}
+        {% if current_user.role == 'admin' %} · <a href="/admin/users">Пользователи</a>{% endif %}
+        · <a href="/logout">Выйти</a>
+      </div>
     </header>
 
     <section class="context-bar" aria-label="Контексты поиска">
