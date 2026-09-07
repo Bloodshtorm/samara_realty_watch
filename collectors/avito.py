@@ -3,11 +3,14 @@ from __future__ import annotations
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from playwright.async_api import BrowserContext
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.models import Search
 from app.schemas import ParsedListing
+from collectors.base import CollectorBlockedError
 from collectors.debug import DebugMixin
 from collectors.html_extract import (
+    page_looks_blocked,
     parsed_from_avito_cards,
     parsed_from_avito_detail,
     parsed_from_data_attrs,
@@ -26,11 +29,11 @@ class AvitoCollector(DebugMixin):
             for page_number in range(1, max(search.max_pages, 1) + 1):
                 target_url = page_url if page_number == 1 else _page_url(page_url, page_number)
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=60_000)
-                await page.wait_for_timeout(1500)
+                await _wait_for_avito_content(page)
                 html = await page.content()
                 text = (await page.locator("body").inner_text(timeout=10_000)).lower()
-                if "#block" in page.url or "доступ ограничен" in text or "проблема с ip" in text:
-                    raise RuntimeError("Avito access is blocked by IP/anti-bot page")
+                if "#block" in page.url or _looks_like_avito_block(text, html):
+                    raise CollectorBlockedError("Avito returned CAPTCHA/login/blocked page")
 
                 parsed = (
                     parsed_from_avito_cards(
@@ -52,6 +55,11 @@ class AvitoCollector(DebugMixin):
                 if search.rooms:
                     parsed = [listing for listing in parsed if listing.rooms == search.rooms]
                 if not parsed:
+                    if page_number == 1:
+                        raise CollectorBlockedError(
+                            "Avito returned no parseable listings on the first page; "
+                            "possible CAPTCHA, changed markup, or empty search result"
+                        )
                     break
                 for listing in parsed:
                     listings_by_id[listing.source_listing_id] = listing
@@ -69,3 +77,26 @@ def _page_url(url: str, page_number: int) -> str:
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     query["p"] = str(page_number)
     return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _looks_like_avito_block(text: str, html: str) -> bool:
+    markers = (
+        "доступ ограничен",
+        "проблема с ip",
+        "captcha",
+        "капча",
+        "подтвердите",
+        "проверка безопасности",
+        "подозрительный трафик",
+    )
+    return any(marker in text for marker in markers) or page_looks_blocked(html)
+
+
+async def _wait_for_avito_content(page) -> None:
+    try:
+        await page.wait_for_selector(
+            '[data-marker="item"], [data-marker="item-title"], #captcha, #block',
+            timeout=15_000,
+        )
+    except PlaywrightTimeoutError:
+        await page.wait_for_timeout(1500)
