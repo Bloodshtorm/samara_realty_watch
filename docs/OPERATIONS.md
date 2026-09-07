@@ -107,6 +107,10 @@ https://github.com/microsoft/playwright/blob/v1.61.0/utils/docker/seccomp_profil
 Start `browser-auth web` only and check `/healthz`, noVNC, data counts, old listing links,
 and a controlled existing search for each enabled source. Reauthenticate through noVNC if
 needed. Only after non-zero useful results enable the scheduler with the collect profile.
+Cian uses the shared authenticated Chrome context, not a separate unauthenticated HTTP
+client. CAPTCHA/HTTP access blocks and an empty first page are failed runs with debug
+artifacts, not successful zero-result collections. Solve challenges manually in noVNC;
+do not add automated challenge solving or evasion.
 Disable old `samara-realty-web.service`, `samara-realty-browser-auth.service`, and
 `samara-realty-collector.timer` autostart, retaining their unit files and venv for rollback.
 
