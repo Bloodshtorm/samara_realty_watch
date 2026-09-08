@@ -28,7 +28,7 @@ from app.web import (
 )
 from services.apartments import candidate_pairs, confirm_link, reconcile_groups, split_member
 from services.auth import SESSION_COOKIE_NAME, create_user_session, hash_password
-from services.deduplication import building_key, compare_listings, is_flat
+from services.deduplication import building_key, compare_listings, description_text, is_flat
 
 DESCRIPTION = (
     "Номер объекта: 123456. Просторная квартира с индивидуальной планировкой. "
@@ -37,6 +37,14 @@ DESCRIPTION = (
     "Окна спальни выходят на тихий двор, лоджия утеплена, на полу паркет. "
     "Заменены трубы, установлены счетчики, предусмотрена гардеробная и рабочий кабинет. "
     "Дом кирпичный, территория закрытая, два лифта, рядом школа, парк и остановка."
+)
+
+GARAGE_DESCRIPTION = (
+    "В продаже ухоженная трешка готовая полностью к проживанию. Квартира теплая и светлая. "
+    "Комнаты на 2 стороны, общая площадь квартиры 63,1 плюс две лоджии. В сан узле "
+    "водонагреватель на случай отключения горячей воды. Два взрослых собственника, "
+    "документы готовы к сделке, мебель и техника остаются по договоренности. Рядом школа, "
+    "детский сад, магазины, остановки общественного транспорта и удобный выезд в центр."
 )
 
 
@@ -135,7 +143,9 @@ def test_address_only_and_generic_template_are_not_automatic():
     a = listing(rooms=None, floor=None, area_total_m2=None, description=None)
     assert compare_listings(a, listing()) is None
     template = "Прекрасная квартира выгодное предложение. " * 20
-    result = compare_listings(listing(description=template), listing(description=template))
+    result = compare_listings(
+        listing(description=template), listing(source="cian", description=template)
+    )
     assert result and not result.automatic
     assert building_key(
         listing(address_normalized="самара, улица тестовая, 140к2")
@@ -146,6 +156,70 @@ def test_address_only_and_generic_template_are_not_automatic():
             listing(address_normalized="самара, другая улица, 9", latitude=None, longitude=None),
         ]
     )
+
+
+def test_short_address_and_description_tail_match_building():
+    assert building_key(listing(address_normalized="гаражная ул., 18")) == building_key(
+        listing(address_normalized="самара, гаражная улица, 18")
+    )
+    assert building_key(
+        listing(address_normalized="гаражная улица, 18 в продаже ухоженная трешка")
+    ) == "самара|гаражная|18"
+    assert building_key(
+        listing(
+            address_normalized=(
+                "самарская область, самара, р-н кировский, мкр. 16,18, "
+                "м. безымянка, проспект кирова, 253"
+            )
+        )
+    ) == "самара|проспект кирова|253"
+
+
+def test_near_identical_description_can_confirm_area_source_mismatch():
+    result = compare_listings(
+        listing(
+            source="domclick",
+            area_total_m2=63.1,
+            price_rub=7_800_000,
+            floor=8,
+            floors_total=9,
+            address_normalized="самара, гаражная улица, 18",
+            description=GARAGE_DESCRIPTION,
+        ),
+        listing(
+            source="cian",
+            area_total_m2=69,
+            price_rub=7_800_000,
+            floor=8,
+            floors_total=9,
+            address_normalized="самарская область, самара, гаражная улица, 18",
+            description=GARAGE_DESCRIPTION,
+        ),
+    )
+    assert result and result.automatic
+    assert result.match_reason["area_text_override"]
+
+
+def test_exact_text_can_confirm_non_diverse_cross_source_pair():
+    text = (
+        "В продаже ухоженная трешка готовая полностью к проживанию. Квартира теплая и светлая. "
+        "Комнаты на 2 стороны, общая площадь квартиры 63,1 плюс 2 лоджии. В сан узле "
+        "водонагреватель на случай отключения горячей воды. 2 взрослых собственника. "
+        "Квартира без обременений."
+    )
+    assert len(set(description_text(listing(description=text)).split())) < 35
+    result = compare_listings(
+        listing(source="n1", area_total_m2=69, description=text),
+        listing(source="cian", area_total_m2=69, description=text),
+    )
+    assert result and result.automatic
+
+
+def test_same_source_pairs_are_not_merged_automatically():
+    assert compare_listings(
+        listing(source="yandex_realty"),
+        listing(source="yandex_realty", source_listing_id="another"),
+    ) is None
 
 
 async def test_grouping_flags_split_rejection_and_recollection(factory):
@@ -197,7 +271,10 @@ async def test_grouping_flags_split_rejection_and_recollection(factory):
 
 async def test_complete_link_not_transitive(factory):
     async with factory() as session, session.begin():
-        items = [listing(area_total_m2=area) for area in [77, 78, 79.1]]
+        items = [
+            listing(source=source, area_total_m2=area)
+            for source, area in zip(["domclick", "n1", "cian"], [77, 78, 79.1], strict=True)
+        ]
         session.add_all(items)
         await session.flush()
         await reconcile_groups(session)
