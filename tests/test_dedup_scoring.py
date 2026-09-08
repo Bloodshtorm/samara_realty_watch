@@ -31,9 +31,7 @@ def test_deduplication_probable_match() -> None:
     a = listing(source="yandex_realty")
     b = listing(source="cian", price_rub=9_000_000, canonical_url="https://example.test/2")
     candidate = compare_listings(a, b)
-    assert candidate is not None
-    assert not candidate.automatic  # A short generic description needs manual confirmation.
-    assert candidate.match_reason["match_type"] == "cross_source_probable_duplicate"
+    assert candidate is None  # A short generic description is too weak for manual review.
 
 
 def test_scoring_below_median() -> None:

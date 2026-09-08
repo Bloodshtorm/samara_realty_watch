@@ -118,7 +118,8 @@ def test_three_source_regression_and_photo_provenance():
     b.description = c.description = None
     assert compare_listings(b, c).automatic
     b.source = "avito"
-    assert not compare_listings(b, c).automatic
+    rematched = compare_listings(b, c)
+    assert rematched is None or not rematched.automatic
 
 
 @pytest.mark.parametrize(
@@ -262,6 +263,23 @@ def test_same_source_pairs_are_not_merged_automatically():
         listing(source="yandex_realty"),
         listing(source="yandex_realty", source_listing_id="another"),
     ) is None
+
+
+def test_weak_numeric_match_without_text_or_media_is_not_reviewable():
+    assert (
+        compare_listings(
+            listing(source="domclick", description=None, raw_payload={}),
+            listing(source="n1", description=None, raw_payload={}),
+        )
+        is None
+    )
+    assert (
+        compare_listings(
+            listing(source="domclick", floor=8, description=DESCRIPTION, raw_payload={}),
+            listing(source="n1", floor=9, description=DESCRIPTION, raw_payload={}),
+        )
+        is None
+    )
 
 
 async def test_grouping_flags_split_rejection_and_recollection(factory):

@@ -250,6 +250,16 @@ def compare_listings(a: Listing, b: Listing) -> DuplicateCandidate | None:
             or area_text_override
         )
     )
+    reviewable = bool(
+        shared_photos >= 2
+        or (shared_refs and "floor" not in conflicts)
+        or (
+            not conflicts
+            and area_close
+            and price_close
+            and text_score >= 0.7
+        )
+    )
     reason = {
         "algorithm_version": ALGORITHM_VERSION,
         "same_house": same_house,
@@ -265,8 +275,6 @@ def compare_listings(a: Listing, b: Listing) -> DuplicateCandidate | None:
         "automatic": automatic,
         "match_type": "cross_source_probable_duplicate",
     }
-    if not automatic and not (
-        shared_photos >= 2 or text_score >= 0.7 or (mandatory and price_close)
-    ):
+    if not automatic and not reviewable:
         return None
     return DuplicateCandidate(1.0 if automatic else 0.5, reason, automatic)
