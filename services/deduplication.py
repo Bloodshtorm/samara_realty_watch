@@ -56,10 +56,16 @@ def building_key(item: Listing) -> str | None:
     if street is None or house is None:
         return None
     street = re.sub(r"^самара\s+", "", street)
-    street = re.sub(r"\bулица\b", "", street).strip()
+    street = _canonical_street(street)
     if not street or any(token in street for token in ("район", "область", "самара", "метро")):
         return None
     return f"самара|{street}|{house}"
+
+
+def _canonical_street(street: str) -> str:
+    street = street.replace("-", " ")
+    street = re.sub(r"\b(?:улица|проспект|просп|шоссе|бульвар|переулок|пер|проезд)\b", "", street)
+    return re.sub(r"\s+", " ", street).strip()
 
 
 def distance_m(a: Listing, b: Listing) -> float | None:
@@ -146,7 +152,7 @@ def compare_listings(a: Listing, b: Listing) -> DuplicateCandidate | None:
     distance = distance_m(a, b)
     if not same_house and (distance is None or distance > 50):
         return None
-    conflicts = [
+    raw_conflicts = [
         field
         for field in ("rooms", "floor", "floors_total")
         if getattr(a, field) is not None
@@ -154,7 +160,7 @@ def compare_listings(a: Listing, b: Listing) -> DuplicateCandidate | None:
         and getattr(a, field) != getattr(b, field)
     ]
     if key_a and key_b and key_a != key_b:
-        conflicts.append("address")
+        raw_conflicts.append("address")
     area_close = bool(
         a.area_total_m2
         and b.area_total_m2
@@ -169,6 +175,19 @@ def compare_listings(a: Listing, b: Listing) -> DuplicateCandidate | None:
     text_a, text_b = description_text(a), description_text(b)
     text_score = fuzz.ratio(text_a, text_b) / 100 if min(len(text_a), len(text_b)) >= 200 else 0.0
     shared_refs = agency_refs(text_a) & agency_refs(text_b)
+    shared_photos = len(photo_ids(a) & photo_ids(b))
+    strong_identity_evidence = bool(shared_photos >= 2 or shared_refs)
+    coordinate_confirmed_house = bool(
+        not same_house
+        and distance is not None
+        and distance <= 15
+        and strong_identity_evidence
+    )
+    conflicts = [
+        conflict
+        for conflict in raw_conflicts
+        if not (conflict == "address" and coordinate_confirmed_house)
+    ]
     area_text_override = bool(
         a.area_total_m2
         and b.area_total_m2
@@ -184,7 +203,7 @@ def compare_listings(a: Listing, b: Listing) -> DuplicateCandidate | None:
         )
     )
     mandatory = (
-        same_house
+        (same_house or coordinate_confirmed_house)
         and not conflicts
         and (area_close or area_text_override)
         and all(
@@ -192,7 +211,6 @@ def compare_listings(a: Listing, b: Listing) -> DuplicateCandidate | None:
             for field in ("rooms", "floor")
         )
     )
-    shared_photos = len(photo_ids(a) & photo_ids(b))
     specific_text_confirmation = (
         text_score >= 0.92
         and specific_description(text_a)
@@ -235,6 +253,7 @@ def compare_listings(a: Listing, b: Listing) -> DuplicateCandidate | None:
     reason = {
         "algorithm_version": ALGORITHM_VERSION,
         "same_house": same_house,
+        "coordinate_confirmed_house": coordinate_confirmed_house,
         "distance_m": round(distance, 1) if distance is not None else None,
         "area_close": area_close,
         "area_text_override": area_text_override,

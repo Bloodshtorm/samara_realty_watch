@@ -172,7 +172,49 @@ def test_short_address_and_description_tail_match_building():
                 "м. безымянка, проспект кирова, 253"
             )
         )
-    ) == "самара|проспект кирова|253"
+    ) == "самара|кирова|253"
+    assert building_key(
+        listing(address_normalized="самарская область, самара, проспект кирова, 348")
+    ) == building_key(
+        listing(address_normalized="самара, промышленный район, кирова проспект, 348")
+    )
+    assert building_key(
+        listing(address_normalized="самарская область, самара, улица стара-загора, 139")
+    ) == building_key(listing(address_normalized="самара, стара загора, 139"))
+
+
+def test_coordinates_photos_and_agency_ref_can_confirm_same_building_alias():
+    text = DESCRIPTION.replace("Номер объекта: 123456.", "Номер объекта: 568887.")
+    result = compare_listings(
+        listing(
+            source="cian",
+            source_listing_id="332279842",
+            address_normalized="самарская область, самара, улица стара-загора, 139",
+            area_total_m2=74.8,
+            price_rub=7_700_000,
+            floor=5,
+            floors_total=9,
+            latitude=53.2,
+            longitude=50.2,
+            description=text,
+            raw_payload={"photos": [{"id": 1}, {"id": 2}]},
+        ),
+        listing(
+            source="n1",
+            source_listing_id="119209045",
+            address_normalized="самара, промышленный район, стара загора, 139",
+            area_total_m2=74.8,
+            price_rub=7_700_000,
+            floor=5,
+            floors_total=9,
+            latitude=53.200001,
+            longitude=50.200001,
+            description=text,
+            raw_payload={"photos": [{"original": "/cian/1.jpg"}, {"original": "/cian/2.jpg"}]},
+        ),
+    )
+    assert result and result.automatic
+    assert result.match_reason["coordinate_confirmed_house"] or result.match_reason["same_house"]
 
 
 def test_near_identical_description_can_confirm_area_source_mismatch():
