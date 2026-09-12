@@ -11,9 +11,12 @@ paid context with an independent browser scraping job. Compatible customer searc
 should reuse permitted source acquisition while keeping preferences, selections,
 reviews and billing private.
 
-Pricing is undecided: active-context subscription versus a one-time additional
-context purchase. Do not enable payments until entitlement semantics, cancellation,
-refunds and ongoing collection costs have been agreed.
+Decision: a subscription includes one active context per user. The administrator
+manually increases `users.context_limit` after an additional context purchase.
+Customers cannot change capacity themselves. Administrators are exempt. Existing
+accounts keep capacity for their current active contexts during migration 0008.
+Deleting a context frees a slot, not a refund. Payment processing and subscription
+renewal/expiry remain manual; there is no automatic billing integration yet.
 
 ## Release Gates
 

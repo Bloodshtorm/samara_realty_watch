@@ -81,6 +81,11 @@
   <main>
     <a href="/">← Все объявления</a>
     <h1>{{ 'Настройки контекста' if editing else 'Новый контекст' }}</h1>
+    {% if quota_full %}
+    <p role="status">Лимит контекстов достигнут: {{ context_used }} из {{ current_user.context_limit }}.</p>
+    <p>Дополнительный контекст пока не подключён к вашей подписке.</p>
+    {% else %}
+    {% if not editing and current_user.role != 'admin' %}<p>Использовано контекстов: {{ context_used }} из {{ current_user.context_limit }}</p>{% endif %}
     <form method="post" action="{{ '/contexts/' ~ editing.id ~ '/edit' if editing else '/contexts' }}">
       <label>Название
         <input name="name" required maxlength="200" value="{{ defaults.name or '' }}" placeholder="Например: Студии в Самаре">
@@ -156,6 +161,7 @@
       </div>
       {% endif %}
     </form>
+    {% endif %}
   </main>
 {% include '_search_navigation.html' %}
 </body>

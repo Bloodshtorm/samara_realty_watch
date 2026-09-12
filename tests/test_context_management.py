@@ -267,3 +267,32 @@ async def test_live_collector_lock_blocks_deletion(factory, tmp_path):
         async with factory() as session:
             with pytest.raises(ValueError, match="идёт сбор"), collector_guard(session):
                 pytest.fail("Acquired an occupied collector lock")
+
+
+def test_capacity_migration_preserves_existing_active_contexts(tmp_path):
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'capacity.sqlite3'}")
+    metadata = sa.MetaData()
+    users = sa.Table("users", metadata, sa.Column("id", sa.Uuid(), primary_key=True))
+    contexts = sa.Table(
+        "search_contexts",
+        metadata,
+        sa.Column("owner_user_id", sa.Uuid()),
+        sa.Column("enabled", sa.Boolean()),
+    )
+    metadata.create_all(engine)
+    existing, empty = uuid.uuid4(), uuid.uuid4()
+    with engine.begin() as connection:
+        connection.execute(users.insert(), [{"id": existing}, {"id": empty}])
+        connection.execute(
+            contexts.insert(),
+            [
+                {"owner_user_id": existing, "enabled": True},
+                {"owner_user_id": existing, "enabled": True},
+                {"owner_user_id": existing, "enabled": False},
+            ],
+        )
+        with Operations.context(MigrationContext.configure(connection)):
+            importlib.import_module("migrations.versions.0008_user_context_limit").upgrade()
+        rows = connection.execute(sa.text("SELECT id, context_limit FROM users")).all()
+        assert dict(rows) == {existing.hex: 2, empty.hex: 1}
+    engine.dispose()

@@ -47,7 +47,7 @@
     <h2>Список</h2>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Статус</th><th>Сброс пароля</th><th></th></tr></thead>
+        <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Статус</th><th>Контексты подписки</th><th>Сброс пароля</th><th></th></tr></thead>
         <tbody>
           {% for user in users %}
             <tr>
@@ -55,6 +55,15 @@
               <td>{{ user.display_name }}</td>
               <td>{{ user.role }}</td>
               <td>{{ 'Активен' if user.is_active else 'Отключен' }}</td>
+              <td>
+                {% if user.role == 'admin' %}Без ограничения{% else %}
+                {% if context_usage is defined %}<div>Использовано: {{ context_usage.get(user.id, 0) }}</div>{% endif %}
+                <form method="post" action="/admin/users/{{ user.id }}/context-limit">
+                  <label>Доступно <input name="context_limit" type="number" min="1" max="1000" required value="{{ user.context_limit }}" style="width: 88px"></label>
+                  <button class="secondary" type="submit">Сохранить</button>
+                </form>
+                {% endif %}
+              </td>
               <td>
                 <form method="post" action="/admin/users/{{ user.id }}/password">
                   <input name="password" type="password" required placeholder="Новый пароль">

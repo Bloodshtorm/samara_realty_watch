@@ -147,6 +147,13 @@ coordinates remain accessible under `Местоположение: Не подт
 
 ### Context Settings And Deletion
 
+Revision `0008_user_context_limit` adds `users.context_limit`, default one. Existing
+accounts retain at least their active context count. Admins can grant additional
+capacity at `/admin/users`; creation is enforced transactionally, admins are exempt.
+Use the same stopped-service, backup, migration and verification sequence as 0007
+below, starting from verified revision `0007_context_settings`. No payment provider
+or automatic subscription renewal/expiry is configured.
+
 Revision `0007_context_settings` adds typed budget/area/floor/district fields and
 `ai_preferences` to `search_contexts`, migrating their existing JSON values. It adds
 `deleted_context_slugs` to prevent YAML reimport after deletion. Existing contexts

@@ -1001,6 +1001,7 @@
         {% endfor %}
       </nav>
       <a class="button secondary" href="/contexts/{{ selected_context.id }}/edit">Настройки контекста</a>
+      {% if current_user.role != 'admin' %}<span class="muted">Контексты: {{ contexts|length }} / {{ current_user.context_limit }}</span>{% endif %}
       <a class="button secondary" href="/contexts/new">Новый контекст</a>
     </section>
 

@@ -388,8 +388,58 @@ async def admin_users_page(
     return templates.TemplateResponse(
         request,
         "admin_users.html",
-        {"users": users, "current_user": admin, "error": None},
+        {
+            "users": users,
+            "current_user": admin,
+            "error": None,
+            "context_usage": {
+                owner_id: count
+                for owner_id, count in (
+                    await session.execute(
+                        select(SearchContext.owner_user_id, func.count())
+                        .where(SearchContext.enabled.is_(True))
+                        .group_by(SearchContext.owner_user_id)
+                    )
+                ).all()
+            },
+        },
     )
+
+
+async def _context_count(session: AsyncSession, user_id: UUID) -> int:
+    return int(
+        await session.scalar(
+            select(func.count())
+            .select_from(SearchContext)
+            .where(SearchContext.owner_user_id == user_id, SearchContext.enabled.is_(True))
+        )
+        or 0
+    )
+
+
+@app.post("/admin/users/{user_id}/context-limit")
+async def admin_context_limit(
+    user_id: UUID, request: Request, session: AsyncSession = SESSION_DEP, _admin: User = ADMIN_DEP
+) -> Response:
+    form = parse_qs((await request.body()).decode(), keep_blank_values=True)
+    limit = _optional_int(
+        "context_limit", _form_value(form, "context_limit"), minimum=1, maximum=1000
+    )
+    if limit is None:
+        return await _admin_users_error(request, session, "Укажите число доступных контекстов.")
+    await session.execute(
+        update(User).where(User.id == user_id).values(context_limit=User.context_limit)
+    )
+    user = await session.get(User, user_id, populate_existing=True)
+    if user is None:
+        raise HTTPException(404, "Пользователь не найден")
+    if limit < await _context_count(session, user_id):
+        return await _admin_users_error(
+            request, session, "Нельзя установить лимит ниже числа активных контекстов."
+        )
+    user.context_limit = limit
+    await session.commit()
+    return RedirectResponse("/admin/users", status_code=303)
 
 
 @app.post("/admin/users")
@@ -973,12 +1023,17 @@ async def listing_ai_review_run(
 
 
 @app.get("/contexts/new", response_class=HTMLResponse)
-async def new_context_page(request: Request, user: User = USER_DEP) -> HTMLResponse:
+async def new_context_page(
+    request: Request, user: User = USER_DEP, session: AsyncSession = SESSION_DEP
+) -> HTMLResponse:
+    used = await _context_count(session, user.id)
     return templates.TemplateResponse(
         request,
         "context_form.html",
         {
             "sources": SOURCE_CHOICES,
+            "quota_full": user.role != "admin" and used >= user.context_limit,
+            "context_used": used,
             "defaults": {
                 "object_type": "flat",
                 "expected_rooms": 3,
@@ -996,7 +1051,15 @@ async def create_context(
     request: Request,
     session: AsyncSession = SESSION_DEP,
     user: User = USER_DEP,
-) -> RedirectResponse:
+) -> Response:
+    await session.execute(
+        update(User).where(User.id == user.id).values(context_limit=User.context_limit)
+    )
+    await session.refresh(user)
+    if user.role != "admin" and await _context_count(session, user.id) >= user.context_limit:
+        response = await new_context_page(request, user, session)
+        response.status_code = 409
+        return response
     body = (await request.body()).decode()
     form = parse_qs(body, keep_blank_values=True)
     _validate_context_form(form)

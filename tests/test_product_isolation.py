@@ -1,6 +1,8 @@
+import asyncio
 from datetime import UTC, datetime
 
 import httpx
+from sqlalchemy import func, select
 from test_ai_recommendations import _listing
 from test_ai_recommendations import factory as factory
 from test_ai_recommendations import override_db as override_db
@@ -97,3 +99,68 @@ async def test_group_cannot_leak_other_users_sources_history_or_map(factory, ove
         admin_page = await client.get(f"/apartments/{group_id}")
         assert "PRIVATE_DESCRIPTION" in admin_page.text
         assert "PRIVATE_URL" in admin_page.text
+
+
+async def test_subscription_capacity_is_admin_managed_and_atomic(factory, override_db):
+    async with factory() as session:
+        customer = User(
+            username="customer", display_name="Customer", password_hash=hash_password("secret")
+        )
+        admin = User(
+            username="admin",
+            display_name="Admin",
+            role="admin",
+            password_hash=hash_password("secret"),
+        )
+        session.add_all([customer, admin])
+        await session.flush()
+        assert customer.context_limit == 1
+        user_id = customer.id
+        _, token = await create_user_session(session, customer, days=1)
+        _, admin_token = await create_user_session(session, admin, days=1)
+        await session.commit()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        client.cookies.set(SESSION_COOKIE_NAME, token)
+        responses = await asyncio.gather(
+            *[
+                client.post(
+                    "/contexts",
+                    data={"name": f"Search {i}", "object_type": "flat", "expected_rooms": "3"},
+                )
+                for i in range(2)
+            ]
+        )
+        assert sorted(r.status_code for r in responses) == [303, 409]
+        full = await client.get("/contexts/new")
+        assert "Лимит контекстов достигнут" in full.text
+        assert (
+            await client.post(f"/admin/users/{user_id}/context-limit", data={"context_limit": "2"})
+        ).status_code == 403
+        client.cookies.set(SESSION_COOKIE_NAME, admin_token)
+        assert (
+            await client.post(f"/admin/users/{user_id}/context-limit", data={"context_limit": "2"})
+        ).status_code == 303
+        client.cookies.set(SESSION_COOKIE_NAME, token)
+        assert (
+            await client.post(
+                "/contexts", data={"name": "Extra", "object_type": "flat", "expected_rooms": "3"}
+            )
+        ).status_code == 303
+        client.cookies.set(SESSION_COOKIE_NAME, admin_token)
+        denied = await client.post(
+            f"/admin/users/{user_id}/context-limit", data={"context_limit": "1"}
+        )
+        assert denied.status_code == 422
+        assert "Нельзя установить лимит" in denied.text
+    async with factory() as session:
+        assert (await session.get(User, user_id)).context_limit == 2
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(SearchContext)
+                .where(SearchContext.owner_user_id == user_id)
+            )
+            == 2
+        )
