@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     app_admin_password: str | None = None
     app_admin_display_name: str | None = None
     app_session_days: int = 30
+    avito_policy_path: Path = Path("data/avito-policy.sqlite3")
+    avito_daily_pages: int = Field(default=60, ge=1, le=200)
+    avito_page_delay_seconds: int = Field(default=60, ge=30)
+    avito_batch_pages: int = Field(default=10, ge=1, le=20)
 
 
 SourceName = Literal["yandex_realty", "domclick", "cian", "avito", "mirkvartir", "n1", "etagi"]

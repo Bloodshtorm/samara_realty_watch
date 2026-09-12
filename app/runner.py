@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
@@ -12,8 +13,11 @@ from app.config import DEFAULT_CONTEXT_SLUG, SearchConfig, Settings, load_search
 from app.db import create_engine, create_session_factory
 from app.models import Base, CollectorRun, Search, SearchContext
 from collectors import COLLECTORS
+from collectors.avito import AvitoCollector
+from collectors.base import CollectorBlockedError
 from collectors.debug import setup_debug
 from services.apartments import reconcile_groups
+from services.avito_policy import AvitoPaused, AvitoPolicy, AvitoTransientError
 from services.ingestion import upsert_listing
 from services.normalization import should_exclude_listing
 from services.retention import prune_history
@@ -100,6 +104,15 @@ async def collect_once(
             raise
 
     collected_any = False
+    avito = AvitoPolicy(
+        settings.avito_policy_path.resolve(),
+        daily_pages=settings.avito_daily_pages,
+        page_delay=settings.avito_page_delay_seconds,
+    )
+    if avito.snapshot().get("probe_in_progress"):
+        avito.finish_probe(False)
+    # One-page watch searches first; rotate discovery batches without losing history.
+    searches.sort(key=lambda item: item.source == "avito" and item.max_pages > 1)
     async with browser() as context:
         for search in searches:
             if not search.enabled:
@@ -108,11 +121,28 @@ async def collect_once(
                 continue
             if only_search and search.name != only_search:
                 continue
-            if due_only and not search_is_due(search, datetime.now(UTC)):
+            pending_probe = search.source == "avito" and avito.snapshot().get("probe_requested")
+            if due_only and not pending_probe and not search_is_due(search, datetime.now(UTC)):
                 continue
             collector = COLLECTORS.get(search.source)
             if collector is None:
                 continue
+            probe = False
+            if isinstance(collector, AvitoCollector):
+                probe = avito.take_probe()
+                try:
+                    avito.check()
+                except AvitoPaused as exc:
+                    log.info("source_paused", source="avito", reason=str(exc))
+                    continue
+                cursor = avito.search_state(search.name)
+                if due_only and not probe and cursor.get("due_at", 0) > time.time():
+                    continue
+                collector.policy = avito
+                collector.start_page = (
+                    1 if probe else min(cursor.get("next_page", 1), search.max_pages)
+                )
+                collector.batch_pages = 1 if probe else settings.avito_batch_pages
             async with session_factory() as session:
                 async with session.begin():
                     db_search = await session.get(Search, search.id)
@@ -132,7 +162,9 @@ async def collect_once(
                     )
                     parsed = await collector.collect_search(search, context)
                     raw_count = len(parsed)
-                    if not raw_count:
+                    if not raw_count and not (
+                        isinstance(collector, AvitoCollector) and collector.reached_end
+                    ):
                         raise RuntimeError(
                             "Source returned no parseable listings; inspect search and parser"
                         )
@@ -178,7 +210,11 @@ async def collect_once(
                             result.listing.score = score.score
                             result.listing.score_details = score.score_details
                             result.listing.score_reasons = score.reasons
-                        run_in_db.status = "completed" if parsed else "empty_filtered"
+                        partial = getattr(collector, "partial_reason", None)
+                        run_in_db.status = (
+                            ("partial" if partial else "completed") if parsed else "empty_filtered"
+                        )
+                        run_in_db.error_message = partial
                         run_in_db.pages_processed = getattr(collector, "pages_processed", 0)
                         run_in_db.finished_at = datetime.now(UTC)
                         run_in_db.listings_found = len(parsed)
@@ -188,6 +224,10 @@ async def collect_once(
                         db_search.last_status = run_in_db.status
                         db_search.last_error = None
                         db_search.last_completed_at = datetime.now(UTC)
+                    if isinstance(collector, AvitoCollector):
+                        avito.finish_search(search.name, collector.next_page, search.interval_hours)
+                        if probe:
+                            avito.finish_probe(bool(parsed))
                     log.info(
                         "collect_completed",
                         source=search.source,
@@ -201,6 +241,17 @@ async def collect_once(
                     )
                     collected_any = True
                 except Exception as exc:
+                    if isinstance(collector, AvitoCollector):
+                        if isinstance(exc, CollectorBlockedError):
+                            avito.block(str(exc))
+                        elif not isinstance(exc, AvitoPaused) or isinstance(
+                            exc, AvitoTransientError
+                        ):
+                            avito.transient_failure(
+                                f"Collection failed: {type(exc).__name__}: {exc}"
+                            )
+                        if probe:
+                            avito.finish_probe(False)
                     async with session.begin():
                         db_search = await session.get(Search, search.id)
                         run_in_db = await session.get(CollectorRun, run_id)

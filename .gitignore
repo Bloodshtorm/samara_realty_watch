@@ -21,5 +21,6 @@ data/debug/html/*.html
 data/debug/screenshots/*.png
 data/reports/*.html
 data/*.sqlite3
+data/*.sqlite3-journal
 data/*.db
 *.log

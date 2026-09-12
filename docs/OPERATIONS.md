@@ -79,7 +79,48 @@ collections omit that flag to force a controlled check. `empty_filtered` means
 that parsed objects were rejected by domain rules, not a successful data refresh.
 Page counters now record requests processed; rule exclusion counts are in logs.
 
-### Derived Data Repair
+### Avito Load Limits And Manual Recovery
+
+Avito shares one persistent load policy across all searches, manual runs and
+container restarts: `data/avito-policy.sqlite3` (not the listing database).
+Use the shared collector flock for every invocation; do not launch concurrent
+`python -m app collect` processes directly. No schema migration is required.
+
+Initial conservative settings (not site-approved safe limits):
+
+- `AVITO_DAILY_PAGES=60`: navigation attempts per rolling 24-hour window.
+- `AVITO_PAGE_DELAY_SECONDS=60`: minimum gap, plus 0-30 seconds of scheduling jitter.
+- `AVITO_BATCH_PAGES=10`: maximum pages per search per run.
+- `AVITO_POLICY_PATH=data/avito-policy.sqlite3`: use the same persistent path in web/collector.
+
+Budgets count navigations, including failures, not Chrome's subresource requests.
+Single-page watch searches run before discovery searches. Discovery resumes from
+its saved next page and wraps at the configured max_pages/end of results. Batches
+are marked `partial`; they never deactivate unvisited listings. This trades discovery
+and price freshness for lower load; reordered source pages can still cause gaps.
+Existing saved-watch URLs get priority; automatic per-favorite detail checks are
+not added. Search intervals gain 0-30 minutes of persisted jitter; the scheduler
+checks them on its normal 3-hour tick, not at the exact timestamp shown.
+
+CAPTCHA/login/401/403 pauses the whole source until manual verification. HTTP 429
+honors Retry-After (seconds or HTTP date); network/5xx failures use persisted
+1/2/4-hour exponential cooldown, then require manual review after three failures.
+There are no immediate request retries. Cooldown never shortens Retry-After.
+Markup/empty-first-page errors are not automatically labelled an IP ban.
+
+At `/runs`, an admin can inspect the reason, budget and schedule. After manually
+checking the existing Chrome through LAN noVNC, request a probe with the button.
+The next scheduler cycle permits one page only, respects budget/cooldown, and
+unpauses only after useful listings are ingested. A failed or interrupted probe
+leaves the source paused. Requesting a probe does not restart Chrome or clear cookies.
+For an earlier controlled probe after pressing the button, use the documented
+one-shot collector command for a single existing Avito search (same flock).
+
+Never remove the policy file to reset quotas or bypass a block. Other sources keep
+running while Avito is paused. On deployment during a known active block, initialize
+the policy with `AvitoPolicy(...).block(reason)` before starting scheduler.
+
+### Derived Data Repair Procedure
 
 For the September 12 geography/mortgage/coordinate fixes, stop scheduler and web
 after any active collection finishes, then preview and apply:

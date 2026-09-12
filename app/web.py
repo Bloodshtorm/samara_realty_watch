@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -57,6 +58,7 @@ from services.auth import (
     hash_session_token,
     verify_password,
 )
+from services.avito_policy import AvitoPolicy
 from services.geography import in_context, usable_coordinates
 from services.search_contexts import sync_contexts_from_config
 
@@ -658,13 +660,29 @@ async def collector_runs_page(
         }
         for run, search in rows
     ]
+    settings = Settings()
+    policy = AvitoPolicy(
+        settings.avito_policy_path.resolve(), daily_pages=settings.avito_daily_pages
+    )
+    policy_state = policy.snapshot()
     return templates.TemplateResponse(
         request,
         "collector_runs.html",
         {
             "runs": runs,
+            "avito_policy": policy_state,
+            "avito_pause": policy.reason(policy_state, time.time()),
+            "avito_budget": settings.avito_daily_pages,
         },
     )
+
+
+@app.post("/runs/avito/probe")
+async def avito_probe(request: Request, _admin: User = ADMIN_DEP) -> RedirectResponse:
+    if request.headers.get("origin") != str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403, detail="Same-origin request required")
+    AvitoPolicy(Settings().avito_policy_path.resolve()).request_probe()
+    return RedirectResponse("/runs", status_code=303)
 
 
 @app.get("/listings/{listing_id}", response_class=HTMLResponse)

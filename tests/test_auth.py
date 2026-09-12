@@ -47,6 +47,43 @@ def test_password_hash_verification() -> None:
     assert not verify_password("wrong", password_hash)
 
 
+async def test_avito_probe_requires_admin_and_same_origin(
+    factory, override_db, tmp_path, monkeypatch
+):
+    from services.avito_policy import AvitoPolicy
+
+    path = tmp_path / "policy.sqlite3"
+    monkeypatch.setenv("AVITO_POLICY_PATH", str(path))
+    policy = AvitoPolicy(path)
+    policy.block("CAPTCHA")
+    async with factory() as session, session.begin():
+        admin = User(
+            username="ops", display_name="Ops", role="admin", password_hash=hash_password("secret")
+        )
+        session.add(admin)
+        await session.flush()
+        _, token = await create_user_session(session, admin, days=1)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post("/runs/avito/probe", headers={"origin": "http://test"})
+        assert response.status_code in (303, 401, 403)
+        assert not policy.snapshot().get("probe_requested")
+        client.cookies.set(SESSION_COOKIE_NAME, token)
+        response = await client.get("/runs")
+        assert response.status_code == 200
+        assert "CAPTCHA" in response.text
+        assert (
+            await client.post("/runs/avito/probe", headers={"origin": "http://evil"})
+        ).status_code == 403
+        assert not policy.snapshot().get("probe_requested")
+        assert (
+            await client.post("/runs/avito/probe", headers={"origin": "http://test"})
+        ).status_code == 303
+        assert policy.snapshot()["blocked"]
+        assert policy.snapshot()["probe_requested"]
+
+
 async def test_radius_and_unknown_view_apply_before_table_limit(factory, override_db):
     async with factory() as session, session.begin():
         admin = User(

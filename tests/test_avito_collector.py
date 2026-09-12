@@ -69,6 +69,63 @@ def test_page_url_adds_or_replaces_page_param() -> None:
     )
 
 
+async def test_batch_resumes_and_marks_partial(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    import collectors.avito as module
+    from app.schemas import ParsedListing
+    from services.avito_policy import AvitoPolicy
+
+    collector = AvitoCollector()
+    collector.policy = AvitoPolicy(tmp_path / "policy.sqlite3")
+    monkeypatch.setattr(collector.policy, "before_page", AsyncMock())
+    collector.start_page = 11
+    collector.batch_pages = 2
+    page = _FakePage("<html></html>")
+    monkeypatch.setattr(
+        module,
+        "parsed_from_avito_cards",
+        lambda *a, **k: [
+            ParsedListing(
+                source="avito",
+                source_listing_id=page.url,
+                url=page.url,
+                canonical_url=page.url,
+                rooms=3,
+            )
+        ],
+    )
+    result = await collector.collect_search(
+        Search(name="test", source="avito", url=page.url, rooms=3, max_pages=100),
+        _FakeContext(page),
+    )
+    assert len(result) == 2
+    assert collector.next_page == 13
+    assert collector.partial_reason
+    assert "p=12" in page.url
+
+
+async def test_429_sets_cooldown_without_retry(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from services.avito_policy import AvitoPolicy, AvitoTransientError
+
+    page = _FakePage("<html></html>")
+    page.goto = AsyncMock(
+        return_value=SimpleNamespace(status=429, headers={"retry-after": "90000"})
+    )
+    collector = AvitoCollector()
+    collector.policy = AvitoPolicy(tmp_path / "policy.sqlite3")
+    with pytest.raises(AvitoTransientError):
+        await collector.collect_search(
+            Search(name="test", source="avito", url=page.url, rooms=3, max_pages=100),
+            _FakeContext(page),
+        )
+    page.goto.assert_awaited_once()
+    assert collector.policy.snapshot()["reason"] == "HTTP 429"
+
+
 async def test_wrong_rooms_page_does_not_end_pagination(monkeypatch):
     import collectors.avito as avito
     from app.schemas import ParsedListing
@@ -105,7 +162,7 @@ async def test_avito_collector_fails_on_empty_first_page(tmp_path) -> None:
     collector.debug_screenshots_dir = tmp_path / "screenshots"
     collector.debug_html_dir = tmp_path / "html"
 
-    with pytest.raises(CollectorBlockedError, match="no parseable listings"):
+    with pytest.raises(RuntimeError, match="no parseable listings"):
         await collector.collect_search(
             Search(
                 name="avito_samara_3rooms_secondary",
