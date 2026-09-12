@@ -949,6 +949,7 @@
         <input type="hidden" name="context" value="{{ filters.context }}">
         <input type="hidden" name="sort" value="{{ filters.sort }}">
         <input type="hidden" name="view" value="{{ filters.view }}">
+        <input type="hidden" name="location" value="{{ filters.location }}">
         <label class="wide-filter">Поиск
           <input
             name="q"
@@ -1041,6 +1042,20 @@
     </details>
 
     <div class="toolbar">
+      {% if selected_context.radius_km %}
+      <form method="get" class="summary">
+        {% for key, value in request.query_params.items() %}
+          {% if key != 'location' %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}
+        {% endfor %}
+        <input type="hidden" name="context" value="{{ selected_context.slug }}">
+        <label>Местоположение
+          <select name="location" onchange="this.form.submit()">
+            <option value="within" {% if filters.location == 'within' %}selected{% endif %}>В пределах {{ selected_context.radius_km|int }} км</option>
+            <option value="unknown" {% if filters.location == 'unknown' %}selected{% endif %}>Не подтверждено</option>
+          </select>
+        </label>
+      </form>
+      {% endif %}
       <div class="summary" id="list-summary">
         <div id="result-summary">Найдено: {{ total }}{% if total > limit %}, показаны первые {{ limit }}{% endif %}</div>
         <div>Период видимости: {{ filters.seen_days }} дн.</div>

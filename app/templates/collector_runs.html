@@ -202,7 +202,7 @@
               <td data-label="Статус">
                 <span class="status-badge status-{{ run.status }}">{{ run.status }}</span>
               </td>
-              <td data-label="Источник">{{ run.source or "-" }}</td>
+              <td data-label="Источник">{{ run.source or "Системный запуск" }}</td>
               <td data-label="Поиск">{{ item.search_name }}</td>
               <td class="num" data-label="Страниц">{{ run.pages_processed }}</td>
               <td class="num" data-label="Найдено">{{ run.listings_found }}</td>

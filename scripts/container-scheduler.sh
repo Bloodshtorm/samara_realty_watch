@@ -14,7 +14,7 @@ while true; do touch /tmp/scheduler-heartbeat; sleep 30; done &
 heartbeat=$!
 while true; do
   started=$SECONDS
-  bash /app/scripts/container-collect.sh &
+  bash /app/scripts/container-collect.sh --due-only &
   child=$!
   result=0
   wait "$child" || result=$?

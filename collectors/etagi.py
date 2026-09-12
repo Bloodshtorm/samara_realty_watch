@@ -11,8 +11,7 @@ from collectors.html_extract import parsed_from_etagi_state, parsed_from_json_ld
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 Chrome/120 Safari/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
     ),
     "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
 }
@@ -20,6 +19,7 @@ HEADERS = {
 
 class EtagiCollector:
     source_name = "etagi"
+    pages_processed = 0
 
     async def collect_search(self, search: Search, context: BrowserContext) -> list[ParsedListing]:
         listings: dict[str, ParsedListing] = {}
@@ -28,6 +28,7 @@ class EtagiCollector:
                 url = search.url if page_num == 1 else _with_page(search.url, page_num)
                 response = await client.get(url)
                 response.raise_for_status()
+                self.pages_processed += 1
                 found = parsed_from_etagi_state(self.source_name, response.text, str(response.url))
                 found = found or parsed_from_json_ld(
                     self.source_name, response.text, str(response.url)

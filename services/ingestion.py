@@ -8,7 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Listing, ListingObservation, PriceHistory, Search
 from app.schemas import ParsedListing
-from services.normalization import calc_price_per_m2
+from services.geography import usable_coordinates
+from services.normalization import (
+    calc_price_per_m2,
+    detect_district,
+    mortgage_features,
+    normalize_address,
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,15 @@ async def upsert_listing(
 
     area = parsed.area_total_m2
     price_per_m2 = parsed.price_per_m2 or calc_price_per_m2(parsed.price_rub, area)
+    old_address = normalize_address(listing.address_raw or listing.address_normalized)
+    new_address = normalize_address(parsed.address_raw or parsed.address_normalized)
+    inferred = bool((listing.features or {}).get("coordinates_inferred"))
+    if usable_coordinates(parsed.latitude, parsed.longitude):
+        listing.latitude, listing.longitude = parsed.latitude, parsed.longitude
+        inferred = False
+    elif created or (new_address and old_address != new_address):
+        listing.latitude = listing.longitude = None
+        inferred = False
     for field in (
         "url",
         "canonical_url",
@@ -63,8 +78,6 @@ async def upsert_listing(
         "address_raw",
         "address_normalized",
         "district",
-        "latitude",
-        "longitude",
         "property_type",
         "seller_type",
         "rooms",
@@ -82,7 +95,18 @@ async def upsert_listing(
         "raw_payload",
         "features",
     ):
+        if field in {"address_raw", "address_normalized"} and getattr(parsed, field) is None:
+            continue
         setattr(listing, field, getattr(parsed, field))
+    listing.district = detect_district(listing.address_raw) or (
+        parsed.district if parsed.district != "самарский" else None
+    )
+    listing.features = {
+        **(parsed.features or {}),
+        **mortgage_features(" ".join(filter(None, [parsed.title, parsed.description]))),
+    }
+    if inferred:
+        listing.features["coordinates_inferred"] = True
     listing.price_per_m2 = price_per_m2
 
     if not created and old_price != parsed.price_rub and parsed.price_rub is not None:

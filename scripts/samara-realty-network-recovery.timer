@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Samara Realty browser network every minute
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec=60
+Unit=samara-realty-network-recovery.service
+
+[Install]
+WantedBy=timers.target

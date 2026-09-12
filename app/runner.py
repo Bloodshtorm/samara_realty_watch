@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import select
@@ -64,6 +64,7 @@ async def collect_once(
     *,
     only_source: str | None = None,
     only_search: str | None = None,
+    due_only: bool = False,
 ) -> None:
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
@@ -81,8 +82,22 @@ async def collect_once(
 
     @asynccontextmanager
     async def browser():
-        async for context in persistent_context(settings):
-            yield context
+        try:
+            async for context in persistent_context(settings):
+                yield context
+        except Exception as exc:
+            async with session_factory() as failure_session, failure_session.begin():
+                failure_session.add(
+                    CollectorRun(
+                        status="failed",
+                        finished_at=datetime.now(UTC),
+                        error_message=(
+                            f"Collection cycle/browser failure: {type(exc).__name__}: {exc}"
+                        ),
+                    )
+                )
+            await engine.dispose()
+            raise
 
     collected_any = False
     async with browser() as context:
@@ -92,6 +107,8 @@ async def collect_once(
             if only_source and search.source != only_source:
                 continue
             if only_search and search.name != only_search:
+                continue
+            if due_only and not search_is_due(search, datetime.now(UTC)):
                 continue
             collector = COLLECTORS.get(search.source)
             if collector is None:
@@ -114,6 +131,11 @@ async def collect_once(
                         html_dir=settings.html_dumps_dir,
                     )
                     parsed = await collector.collect_search(search, context)
+                    raw_count = len(parsed)
+                    if not raw_count:
+                        raise RuntimeError(
+                            "Source returned no parseable listings; inspect search and parser"
+                        )
                     parsed = [
                         listing
                         for listing in parsed
@@ -156,13 +178,14 @@ async def collect_once(
                             result.listing.score = score.score
                             result.listing.score_details = score.score_details
                             result.listing.score_reasons = score.reasons
-                        run_in_db.status = "completed"
+                        run_in_db.status = "completed" if parsed else "empty_filtered"
+                        run_in_db.pages_processed = getattr(collector, "pages_processed", 0)
                         run_in_db.finished_at = datetime.now(UTC)
                         run_in_db.listings_found = len(parsed)
                         run_in_db.listings_created = created
                         run_in_db.listings_updated = updated
                         run_in_db.price_changes_found = price_changes
-                        db_search.last_status = "completed"
+                        db_search.last_status = run_in_db.status
                         db_search.last_error = None
                         db_search.last_completed_at = datetime.now(UTC)
                     log.info(
@@ -170,6 +193,11 @@ async def collect_once(
                         source=search.source,
                         search_id=str(search.id),
                         found=len(parsed),
+                        parsed_before_rules=raw_count,
+                        excluded_by_rules=raw_count - len(parsed),
+                        pages_processed=getattr(collector, "pages_processed", 0),
+                        page_limit_reached=getattr(collector, "pages_processed", 0)
+                        >= search.max_pages,
                     )
                     collected_any = True
                 except Exception as exc:
@@ -178,6 +206,7 @@ async def collect_once(
                         run_in_db = await session.get(CollectorRun, run_id)
                         assert db_search is not None and run_in_db is not None
                         run_in_db.status = "failed"
+                        run_in_db.pages_processed = getattr(collector, "pages_processed", 0)
                         run_in_db.finished_at = datetime.now(UTC)
                         run_in_db.error_message = str(exc)
                         run_in_db.debug_screenshot_path = getattr(
@@ -193,3 +222,12 @@ async def collect_once(
             grouping = await reconcile_groups(session)
         log.info("apartments_reconciled", **grouping)
     await engine.dispose()
+
+
+def search_is_due(search: Search, now: datetime) -> bool:
+    last = search.last_completed_at
+    if last is None or search.last_status == "failed":
+        return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=UTC)
+    return now >= last + timedelta(hours=search.interval_hours)

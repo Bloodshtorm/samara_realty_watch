@@ -96,8 +96,11 @@ def browser_init(
 def collect(
     source: str | None = typer.Option(None),
     search: str | None = typer.Option(None),
+    due_only: bool = typer.Option(
+        False, help="Run searches whose configured interval has elapsed."
+    ),
 ) -> None:
-    asyncio.run(collect_once(settings(), only_source=source, only_search=search))
+    asyncio.run(collect_once(settings(), only_source=source, only_search=search, due_only=due_only))
 
 
 @cli.command()

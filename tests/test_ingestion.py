@@ -125,3 +125,27 @@ async def test_price_history_only_on_change(session_factory) -> None:
             assert len(history) == 1
             assert history[0].old_price_rub == 8_900_000
             assert history[0].new_price_rub == 8_500_000
+
+
+async def test_coordinates_survive_incomplete_response_but_not_address_change(session_factory):
+    async with session_factory() as session, session.begin():
+        search = Search(name="coords", source="avito", url="https://example.test", city="Самара")
+        session.add(search)
+        await session.flush()
+        parsed = ParsedListing(
+            source="avito",
+            source_listing_id="coords",
+            url="https://example.test/coords",
+            canonical_url="https://example.test/coords",
+            address_raw="Самара, Ново-Садовая, 100",
+            latitude=53.22,
+            longitude=50.15,
+        )
+        await upsert_listing(session, search, parsed)
+        missing = parsed.model_copy(update={"latitude": None, "longitude": None})
+        result = await upsert_listing(session, search, missing)
+        assert (result.listing.latitude, result.listing.longitude) == (53.22, 50.15)
+        result = await upsert_listing(
+            session, search, missing.model_copy(update={"address_raw": "Самара, Ново-Садовая, 200"})
+        )
+        assert result.listing.latitude is None and result.listing.longitude is None

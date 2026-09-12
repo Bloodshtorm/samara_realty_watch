@@ -47,6 +47,71 @@ def test_password_hash_verification() -> None:
     assert not verify_password("wrong", password_hash)
 
 
+async def test_radius_and_unknown_view_apply_before_table_limit(factory, override_db):
+    async with factory() as session, session.begin():
+        admin = User(
+            username="geo", display_name="Geo", role="admin", password_hash=hash_password("secret")
+        )
+        context = SearchContext(
+            slug="radius",
+            name="Radius",
+            object_type="land",
+            radius_km=50,
+            center_latitude=53.2,
+            center_longitude=50.1,
+        )
+        session.add_all([admin, context])
+        await session.flush()
+        search = Search(
+            name="geo",
+            source="avito",
+            url="https://example.test",
+            city="Самара",
+            context_id=context.id,
+        )
+        session.add(search)
+        await session.flush()
+        for name, lat in [("INSIDE", 53.25), ("OUTSIDE", 54.5), ("UNKNOWN", None)]:
+            listing = Listing(
+                source="avito",
+                source_listing_id=name,
+                title=name,
+                url="https://example.test",
+                canonical_url="https://example.test",
+                latitude=lat,
+                longitude=50.1 if lat else None,
+                price_rub=500000,
+                last_seen_at=datetime.now(UTC),
+            )
+            session.add(listing)
+            await session.flush()
+            session.add(ListingObservation(listing_id=listing.id, search_id=search.id))
+        _, token = await create_user_session(session, admin, days=1)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        client.cookies.set(SESSION_COOKIE_NAME, token)
+        inside = await client.get("/?context=radius&price_max=600000&source=avito")
+        assert inside.status_code == 200
+        assert (
+            "INSIDE" in inside.text
+            and "OUTSIDE" not in inside.text
+            and "UNKNOWN" not in inside.text
+        )
+        unknown = await client.get("/?context=radius&location=unknown")
+        assert "UNKNOWN" in unknown.text and "INSIDE" not in unknown.text
+        spatial = await client.post(
+            "/api/listings/spatial?context=radius",
+            json={"mode": "bounds", "north": 55, "south": 52, "east": 51, "west": 49},
+        )
+        assert spatial.status_code == 200 and spatial.json()["total"] == 1
+        excluded = await client.post(
+            "/api/listings/spatial?context=radius&price_max=100000",
+            json={"mode": "bounds", "north": 55, "south": 52, "east": 51, "west": 49},
+        )
+        assert excluded.json()["total"] == 0
+
+
 async def test_bootstrap_admin_assigns_existing_contexts(factory) -> None:
     async with factory() as session, session.begin():
         context = SearchContext(slug="legacy", name="Legacy")
@@ -204,9 +269,7 @@ async def test_contexts_and_favorites_are_personal(factory, override_db) -> None
         session.add_all([search, listing])
         await session.flush()
         session.add(
-            ListingObservation(
-                listing_id=listing.id, search_id=search.id, price_rub=7_000_000
-            )
+            ListingObservation(listing_id=listing.id, search_id=search.id, price_rub=7_000_000)
         )
         await session.flush()
         listing_id = listing.id
@@ -229,9 +292,9 @@ async def test_contexts_and_favorites_are_personal(factory, override_db) -> None
     ) as admin_client:
         admin_client.cookies.set(SESSION_COOKIE_NAME, admin_token)
         assert "Admin Context" in (await admin_client.get("/")).text
-        assert "Найдено: 0" in (
-            await admin_client.get("/?context=ivan_context&view=favorites")
-        ).text
+        assert (
+            "Найдено: 0" in (await admin_client.get("/?context=ivan_context&view=favorites")).text
+        )
 
 
 async def test_user_creates_personal_context_with_disabled_searches(factory, override_db) -> None:

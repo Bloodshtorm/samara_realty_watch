@@ -69,6 +69,34 @@ def test_page_url_adds_or_replaces_page_param() -> None:
     )
 
 
+async def test_wrong_rooms_page_does_not_end_pagination(monkeypatch):
+    import collectors.avito as avito
+    from app.schemas import ParsedListing
+
+    calls = []
+
+    def parse(*args, **kwargs):
+        calls.append(1)
+        rooms = 2 if len(calls) == 1 else 3
+        return [
+            ParsedListing(
+                source="avito",
+                source_listing_id=str(rooms),
+                url="https://example.test/1",
+                canonical_url="https://example.test/1",
+                rooms=rooms,
+            )
+        ]
+
+    monkeypatch.setattr(avito, "parsed_from_avito_cards", parse)
+    page = _FakePage("<html></html>")
+    result = await AvitoCollector().collect_search(
+        Search(source="avito", name="test", url=page.url, rooms=3, max_pages=2), _FakeContext(page)
+    )
+    assert len(calls) == 2
+    assert [item.rooms for item in result] == [3]
+
+
 @pytest.mark.asyncio
 async def test_avito_collector_fails_on_empty_first_page(tmp_path) -> None:
     page = _FakePage("<html><body>Авито — объявления</body></html>", "Авито — объявления")
@@ -212,6 +240,17 @@ def test_avito_detail_page_can_be_imported_for_land_context() -> None:
     assert listings[0].source_listing_id == "8250141503"
     assert listings[0].price_rub == 3_700_000
     assert listings[0].area_total_m2 == 700
-    assert listings[0].latitude == 53.195538
-    assert listings[0].longitude == 50.101783
+    assert listings[0].latitude is None
+    assert listings[0].longitude is None
     assert listings[0].district == "красноглинский"
+
+
+def test_detail_coordinates_are_paired_and_ignore_default_viewport():
+    from collectors.html_extract import _avito_detail_coordinates
+
+    assert _avito_detail_coordinates("""{"defaultCoords":{"latitude":53.1,"longitude":50.1},
+        "position":{"latitude":53.3,"longitude":50.3}}""") == (53.3, 50.3)
+    assert _avito_detail_coordinates("""{"a":{"latitude":53.3},"b":{"longitude":50.3}}""") == (
+        None,
+        None,
+    )

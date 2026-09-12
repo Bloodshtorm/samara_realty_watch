@@ -113,6 +113,13 @@ def is_outside_samara_city_listing(*texts: str | None) -> bool:
     if not normalized:
         return False
     blocked_markers = (
+        "тольятти",
+        "сызрань",
+        "жигулевск",
+        "чапаевск",
+        "отрадный",
+        "похвистнево",
+        "кинель",
         "новокуйбышевск",
         "петра дубрава",
         "стройкерамика",
@@ -124,7 +131,7 @@ def is_outside_samara_city_listing(*texts: str | None) -> bool:
         "село",
         "деревня",
     )
-    return any(marker in normalized for marker in blocked_markers)
+    return any(re.search(rf"\b{re.escape(marker)}\b", normalized) for marker in blocked_markers)
 
 
 def is_low_rise_building(floors_total: int | None) -> bool:
@@ -158,7 +165,7 @@ def should_exclude_listing(
         return is_fractional_share_listing(title, description, property_type)
     return (
         is_fractional_share_listing(title, description, property_type)
-        or is_outside_samara_city_listing(address_raw, address_normalized, title, description)
+        or is_outside_samara_city_listing(address_raw, address_normalized)
         or is_low_rise_building(floors_total)
         or (
             expected_rooms is not None
@@ -190,14 +197,16 @@ def normalize_address(value: str | None) -> str | None:
 
 def detect_district(*texts: str | None) -> str | None:
     combined = " ".join(t for t in (compact_text(x) for x in texts) if t).lower()
-    explicit_match = re.search(r"\bр-н\s+([а-я-]+)", combined)
+    combined = re.sub(r"\bсамарск(?:ая|ой)\s+обл(?:асть|асти)?\.?", "", combined)
+    explicit_match = re.search(r"\b(?:р-н|район)\s+([а-я-]+)", combined)
     if explicit_match:
         district_name = explicit_match.group(1)
         for district, markers in SAMARA_DISTRICTS.items():
-            if any(marker in district_name for marker in markers):
+            if any(district_name.startswith(marker) for marker in markers):
                 return district
+        return None
     for district, markers in SAMARA_DISTRICTS.items():
-        if any(marker in combined for marker in markers):
+        if any(re.search(rf"\b{marker}(?:ий|ого|ом)?\b", combined) for marker in markers):
             return district
     return None
 
@@ -217,10 +226,6 @@ def extract_features(text: str | None) -> dict[str, bool | None]:
     normalized = (compact_text(text) or "").lower()
     features: dict[str, bool | None] = {name: None for name in FEATURE_NAMES}
     patterns = {
-        "mortgage_available": ("ипотек",),
-        "family_mortgage": ("семейн",),
-        "it_mortgage": ("it-ипот", "айти ипот", "it ипот"),
-        "subsidized_mortgage": ("субсидирован",),
         "installment_available": ("рассроч",),
         "new_building": ("новострой", "застройщик", "жк "),
         "secondary_market": ("вторич",),
@@ -241,7 +246,42 @@ def extract_features(text: str | None) -> dict[str, bool | None]:
     for name, markers in patterns.items():
         if any(marker in normalized for marker in markers):
             features[name] = True
+    features.update(mortgage_features(text))
     return features
+
+
+def mortgage_features(text: str | None) -> dict[str, bool | None]:
+    text = (compact_text(text) or "").lower()
+    kinds = {
+        "mortgage_available": r"ипотек\w*",
+        "family_mortgage": r"семейн\w*\s+ипотек\w*",
+        "it_mortgage": r"(?:it|ит|айти)[ -]ипотек\w*",
+        "subsidized_mortgage": r"субсидирован\w*\s+ипотек\w*",
+    }
+    result: dict[str, bool | None] = dict.fromkeys(kinds)
+    for name, pattern in kinds.items():
+        for clause in re.split(r"[.!?;\n]", text):
+            if not re.search(pattern, clause):
+                continue
+            negative = re.search(
+                rf"(?:без|кроме|не\s+под\w*|не\s+доступ\w*)\s+(?:\w+\s+){{0,2}}{pattern}"
+                rf"|{pattern}\s+(?:\w+\s+){{0,2}}не\s+(?:под\w*|доступ\w*|возмож\w*|рассматр\w*)"
+                rf"|{pattern}\s+(?:невозмож\w*|недоступ\w*)",
+                clause,
+            )
+            if negative:
+                result[name] = False
+            elif result[name] is not False and re.search(
+                r"возмож\w*|подходит|доступ\w*|одобрен\w*|можно|рассмотрим|принима\w*", clause
+            ):
+                result[name] = True
+    # A named program alone does not imply that this property is eligible.
+    if re.search(r"только\s+наличн\w*", text):
+        result["mortgage_available"] = False
+    if result["mortgage_available"] is False:
+        for name in kinds:
+            result[name] = False
+    return result
 
 
 def canonicalize_url(url: str) -> str:

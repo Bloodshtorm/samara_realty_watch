@@ -89,7 +89,7 @@ services:
     restart: unless-stopped
     command: ["bash", "/app/scripts/container-scheduler.sh"]
     healthcheck:
-      test: ["CMD", "python", "-c", "import os,time; assert time.time()-os.stat('/tmp/scheduler-heartbeat').st_mtime < 120"]
+      test: ["CMD", "python", "/app/scripts/collector-health.py"]
       interval: 30s
       timeout: 5s
       retries: 3

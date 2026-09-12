@@ -6,6 +6,7 @@ from playwright.async_api import BrowserContext
 
 from app.models import Search
 from app.schemas import ParsedListing
+from collectors.base import CollectorBlockedError
 from collectors.debug import DebugMixin
 from collectors.html_extract import page_looks_blocked, parsed_from_mirkvartir_cards
 
@@ -20,11 +21,12 @@ class MirKvartirCollector(DebugMixin):
             for page_num in range(1, search.max_pages + 1):
                 url = search.url if page_num == 1 else _with_page(search.url, page_num)
                 await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+                self.pages_processed += 1
                 await page.wait_for_timeout(1500)
                 html = await page.content()
                 if page_looks_blocked(html):
                     await self.save_debug_page(page)
-                    return list(listings.values())
+                    raise CollectorBlockedError("MirKvartir returned CAPTCHA/login/blocked page")
                 found = parsed_from_mirkvartir_cards(self.source_name, html, page.url)
                 if not found:
                     break

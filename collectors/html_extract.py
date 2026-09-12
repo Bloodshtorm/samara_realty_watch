@@ -139,9 +139,7 @@ def parsed_from_offer_links(source: str, html: str, page_url: str) -> list[Parse
             existing.price_rub = existing.price_rub or listing.price_rub
             existing.price_per_m2 = existing.price_per_m2 or listing.price_per_m2
             existing.address_raw = existing.address_raw or listing.address_raw
-            existing.address_normalized = (
-                existing.address_normalized or listing.address_normalized
-            )
+            existing.address_normalized = existing.address_normalized or listing.address_normalized
             existing.district = existing.district or listing.district
             continue
         by_id[listing.source_listing_id] = listing
@@ -154,40 +152,40 @@ def _parsed_from_offer_link(
     page_url: str,
     text: str,
 ) -> ParsedListing | None:
-        href = link.get("href")
-        if not href:
-            return None
-        url = urljoin(page_url, href)
-        canonical_url = canonicalize_url(url)
-        source_id = stable_listing_id(source, canonical_url)
-        area = parse_area_m2(text)
-        rooms = parse_rooms(text)
-        floor, floors_total = parse_floor(text)
-        price = _listing_price_from_text(text)
-        price_per_m2 = _price_per_m2_from_text(text) or calc_price_per_m2(price, area)
-        if not any((area, rooms, floor, floors_total)):
-            return None
-        address = _address_from_card_text(text)
-        return ParsedListing(
-            source=source,
-            source_listing_id=source_id,
-            url=url,
-            canonical_url=canonical_url,
-            title=_title_from_card_text(text),
-            address_raw=address,
-            address_normalized=normalize_address(address),
-            district=detect_district(address, text),
-            seller_type=normalize_seller_type(text),
-            rooms=rooms,
-            area_total_m2=area,
-            price_rub=price,
-            price_per_m2=price_per_m2,
-            floor=floor,
-            floors_total=floors_total,
-            description=text,
-            raw_payload={"href": href, "card_text": text},
-            features=extract_features(text),
-        )
+    href = link.get("href")
+    if not href:
+        return None
+    url = urljoin(page_url, href)
+    canonical_url = canonicalize_url(url)
+    source_id = stable_listing_id(source, canonical_url)
+    area = parse_area_m2(text)
+    rooms = parse_rooms(text)
+    floor, floors_total = parse_floor(text)
+    price = _listing_price_from_text(text)
+    price_per_m2 = _price_per_m2_from_text(text) or calc_price_per_m2(price, area)
+    if not any((area, rooms, floor, floors_total)):
+        return None
+    address = _address_from_card_text(text)
+    return ParsedListing(
+        source=source,
+        source_listing_id=source_id,
+        url=url,
+        canonical_url=canonical_url,
+        title=_title_from_card_text(text),
+        address_raw=address,
+        address_normalized=normalize_address(address),
+        district=detect_district(address, text),
+        seller_type=normalize_seller_type(text),
+        rooms=rooms,
+        area_total_m2=area,
+        price_rub=price,
+        price_per_m2=price_per_m2,
+        floor=floor,
+        floors_total=floors_total,
+        description=text,
+        raw_payload={"href": href, "card_text": text},
+        features=extract_features(text),
+    )
 
 
 def parsed_from_data_attrs(source: str, html: str) -> list[ParsedListing]:
@@ -436,12 +434,17 @@ def _avito_detail_address(text: str) -> str | None:
 
 
 def _avito_detail_coordinates(html_text: str) -> tuple[float | None, float | None]:
-    decoded = unescape(html_text)
-    lat_match = re.search(r'(?:\\"|")latitude(?:\\"|")\s*:\s*([0-9.]+)', decoded)
-    lng_match = re.search(r'(?:\\"|")longitude(?:\\"|")\s*:\s*([0-9.]+)', decoded)
-    if not lat_match or not lng_match:
-        return None, None
-    return float(lat_match.group(1)), float(lng_match.group(1))
+    from services.geography import usable_coordinates
+
+    decoded = unescape(html_text).replace('\\"', '"')
+    # Default map viewport coordinates do not locate the advertised property.
+    decoded = re.sub(r'"defaultCoords"\s*:\s*\{[^{}]*\}', '"defaultCoords":null', decoded)
+    for position in _json_objects_matching(decoded, r'"latitude"\s*:'):
+        latitude = _optional_float_value(position.get("latitude"))
+        longitude = _optional_float_value(position.get("longitude"))
+        if usable_coordinates(latitude, longitude):
+            return latitude, longitude
+    return None, None
 
 
 def _meta_content(soup: BeautifulSoup, name: str) -> str | None:
@@ -533,8 +536,7 @@ def parsed_from_n1_state(source: str, html: str, page_url: str) -> list[ParsedLi
         description = compact_text(params.get("description") or payload.get("description"))
         text = " ".join(x for x in (address, description) if x)
         title = compact_text(
-            payload.get("title")
-            or f"{params.get('rooms_count') or ''}-комн. квартира, {area:g} м²"
+            payload.get("title") or f"{params.get('rooms_count') or ''}-комн. квартира, {area:g} м²"
         )
         location = _dict_value(payload, "location")
         if not location:
@@ -591,9 +593,7 @@ def parsed_from_etagi_state(source: str, html: str, page_url: str) -> list[Parse
         canonical_url = canonicalize_url(url)
         meta = _dict_value(payload, "meta")
         address = _etagi_address(payload, meta)
-        title = compact_text(
-            f"{payload.get('rooms') or ''}-комн. квартира, {area:g} м²"
-        )
+        title = compact_text(f"{payload.get('rooms') or ''}-комн. квартира, {area:g} м²")
         description = compact_text(payload.get("description"))
         text = " ".join(x for x in (title, address, description, str(meta.get("walls") or "")) if x)
 

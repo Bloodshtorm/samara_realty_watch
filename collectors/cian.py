@@ -26,6 +26,7 @@ class CianCollector(DebugMixin):
             for page_num in range(1, search.max_pages + 1):
                 url = search.url if page_num == 1 else _with_page(search.url, page_num)
                 response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+                self.pages_processed += 1
                 await page.wait_for_timeout(1500)
                 html = await page.content()
                 if "cian-captcha" in page.url or (

@@ -30,6 +30,7 @@ class DomclickCollector(DebugMixin):
         page = await context.new_page()
         try:
             await page.goto(search.url, wait_until="domcontentloaded", timeout=60_000)
+            self.pages_processed += 1
             await page.wait_for_timeout(3000)
             html = await page.content()
             text = (await page.locator("body").inner_text(timeout=10_000)).lower()
@@ -46,9 +47,7 @@ class DomclickCollector(DebugMixin):
         finally:
             await page.close()
 
-    async def _collect_api(
-        self, search: Search, context: BrowserContext
-    ) -> list[ParsedListing]:
+    async def _collect_api(self, search: Search, context: BrowserContext) -> list[ParsedListing]:
         listings: dict[str, ParsedListing] = {}
         limit = 20
         for page_number in range(max(search.max_pages, 1)):
@@ -64,7 +63,8 @@ class DomclickCollector(DebugMixin):
             if not response.ok:
                 if page_number == 0:
                     return []
-                break
+                raise RuntimeError(f"Domclick pagination failed: HTTP {response.status}")
+            self.pages_processed += 1
             payload = await response.json()
             items = payload.get("result", {}).get("items", [])
             if not isinstance(items, list):
@@ -87,9 +87,7 @@ def _api_url(search_url: str, *, offset: int, limit: int) -> str:
     query["offset"] = str(offset)
     query["limit"] = str(limit)
     api_query = urlencode(query)
-    return urlunparse(
-        ("https", "bff-search-web.domclick.ru", "/api/offers/v1", "", api_query, "")
-    )
+    return urlunparse(("https", "bff-search-web.domclick.ru", "/api/offers/v1", "", api_query, ""))
 
 
 def _parsed_from_api_item(source: str, item: dict[str, Any]) -> ParsedListing:

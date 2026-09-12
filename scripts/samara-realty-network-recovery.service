@@ -1,0 +1,7 @@
+[Unit]
+Description=Recover Samara Realty collector browser network
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/bs/soft/github/samara_realty_watch/scripts/ensure-collector-network.py

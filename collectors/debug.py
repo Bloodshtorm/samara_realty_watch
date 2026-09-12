@@ -8,6 +8,7 @@ from playwright.async_api import Page
 
 
 class DebugMixin:
+    pages_processed: int = 0
     debug_run_id: UUID | None = None
     debug_screenshots_dir: Path | None = None
     debug_html_dir: Path | None = None
@@ -29,6 +30,7 @@ class DebugMixin:
 
 
 def setup_debug(collector: Any, *, run_id: UUID, screenshots_dir: Path, html_dir: Path) -> None:
+    collector.pages_processed = 0
     if hasattr(collector, "debug_run_id"):
         collector.debug_run_id = run_id
         collector.debug_screenshots_dir = screenshots_dir

@@ -29,6 +29,7 @@ class AvitoCollector(DebugMixin):
             for page_number in range(1, max(search.max_pages, 1) + 1):
                 target_url = page_url if page_number == 1 else _page_url(page_url, page_number)
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=60_000)
+                self.pages_processed += 1
                 await _wait_for_avito_content(page)
                 html = await page.content()
                 text = (await page.locator("body").inner_text(timeout=10_000)).lower()
@@ -52,8 +53,6 @@ class AvitoCollector(DebugMixin):
                     or parsed_from_json_ld(self.source_name, html, page.url)
                     or parsed_from_data_attrs(self.source_name, html)
                 )
-                if search.rooms:
-                    parsed = [listing for listing in parsed if listing.rooms == search.rooms]
                 if not parsed:
                     if page_number == 1:
                         raise CollectorBlockedError(
@@ -61,6 +60,8 @@ class AvitoCollector(DebugMixin):
                             "possible CAPTCHA, changed markup, or empty search result"
                         )
                     break
+                if search.rooms:
+                    parsed = [listing for listing in parsed if listing.rooms == search.rooms]
                 for listing in parsed:
                     listings_by_id[listing.source_listing_id] = listing
                 page_url = page.url

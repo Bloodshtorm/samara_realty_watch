@@ -57,6 +57,7 @@ from services.auth import (
     hash_session_token,
     verify_password,
 )
+from services.geography import in_context, usable_coordinates
 from services.search_contexts import sync_contexts_from_config
 
 PAGE_SIZE = 100
@@ -110,6 +111,7 @@ class ListingFilters:
     seen_days: int = 7
     sort: str = "price"
     view: str = "active"
+    location: str = "within"
 
 
 class SpatialFilterPayload(BaseModel):
@@ -180,6 +182,7 @@ def parse_filters(
         ),
     ),
     view: str = Query(default="active", pattern="^(active|favorites|hidden)$"),
+    location: str = Query(default="within", pattern="^(within|unknown)$"),
 ) -> ListingFilters:
     context_value = _optional_text(context) or "3rooms_samara"
     q_value = _optional_text(q)
@@ -204,6 +207,7 @@ def parse_filters(
         seen_days=_optional_int("seen_days", seen_days, minimum=1, maximum=365) or 7,
         sort=sort if sort in SORT_VALUES else "price",
         view=view if view in VIEW_VALUES else "active",
+        location=location if location in ("within", "unknown") else "within",
     )
 
 
@@ -281,9 +285,7 @@ async def login_page(request: Request, session: AsyncSession = SESSION_DEP) -> H
 
 
 @app.post("/login")
-async def login_submit(
-    request: Request, session: AsyncSession = SESSION_DEP
-) -> Response:
+async def login_submit(request: Request, session: AsyncSession = SESSION_DEP) -> Response:
     body = (await request.body()).decode()
     form = parse_qs(body, keep_blank_values=True)
     username = _form_value(form, "username").lower()
@@ -342,8 +344,10 @@ async def admin_users_page(
     admin: User = ADMIN_DEP,
 ) -> HTMLResponse:
     users = (
-        await session.execute(select(User).order_by(User.created_at, User.username))
-    ).scalars().all()
+        (await session.execute(select(User).order_by(User.created_at, User.username)))
+        .scalars()
+        .all()
+    )
     return templates.TemplateResponse(
         request,
         "admin_users.html",
@@ -516,12 +520,12 @@ def _login_url(request: Request) -> str:
     return "/login?" + urlencode({"next": _safe_next(next_url)})
 
 
-async def _admin_users_error(
-    request: Request, session: AsyncSession, error: str
-) -> HTMLResponse:
+async def _admin_users_error(request: Request, session: AsyncSession, error: str) -> HTMLResponse:
     users = (
-        await session.execute(select(User).order_by(User.created_at, User.username))
-    ).scalars().all()
+        (await session.execute(select(User).order_by(User.created_at, User.username)))
+        .scalars()
+        .all()
+    )
     return templates.TemplateResponse(
         request,
         "admin_users.html",
@@ -543,7 +547,13 @@ async def listings_page(
     selected_context = _selected_context(contexts, filters.context)
     filters.context = selected_context.slug
     stmt = _filtered_listings_query(filters, selected_context, user)
-    row_candidates = unique_apartments(list((await session.scalars(stmt)).all()))
+    row_candidates = unique_apartments(
+        [
+            item
+            for item in (await session.scalars(stmt)).all()
+            if in_context(item, selected_context, filters.location)
+        ]
+    )
     total = len(row_candidates)
     row_context = await _table_rows_context(
         session, row_candidates, filters, selected_context, user
@@ -604,6 +614,9 @@ async def spatial_listings(
         _filtered_listings_query(filters, selected_context, user), payload
     )
     candidates = list((await session.execute(stmt)).scalars().all())
+    candidates = [
+        item for item in candidates if in_context(item, selected_context, filters.location)
+    ]
     if payload.mode == "polygon":
         candidates = [item for item in candidates if _listing_in_polygon(item, payload.polygon)]
     candidates = unique_apartments(candidates)
@@ -855,9 +868,7 @@ def _filtered_listings_query(
         conditions.append(Listing.price_rub >= price_min)
     if filters.price_max is None and (price_max := _optional_rule_int(rules, "price_max")):
         conditions.append(Listing.price_rub <= price_max)
-    if filters.price_m2_max is None and (
-        price_m2_max := _optional_rule_int(rules, "price_m2_max")
-    ):
+    if filters.price_m2_max is None and (price_m2_max := _optional_rule_int(rules, "price_m2_max")):
         conditions.append(Listing.price_per_m2 <= price_m2_max)
     if filters.area_min is None and (area_min := _optional_rule_float(rules, "area_min")):
         conditions.append(Listing.area_total_m2 >= area_min)
@@ -1174,7 +1185,7 @@ def _map_points(
         apartment = (apartments or {}).get(item.id, {})
         latitude = apartment.get("latitude", item.latitude)
         longitude = apartment.get("longitude", item.longitude)
-        if latitude is None or longitude is None:
+        if not usable_coordinates(latitude, longitude):
             continue
         points.append(
             {
@@ -1449,7 +1460,7 @@ async def _recent_market_listings(
         conditions.append(Listing.rooms == context.expected_rooms)
     if context is None and user is not None and user.role != "admin":
         conditions.append(SearchContext.owner_user_id == user.id)
-    return unique_apartments(
+    market_listings = unique_apartments(
         list(
             (
                 await session.execute(
@@ -1467,6 +1478,7 @@ async def _recent_market_listings(
             .all()
         )
     )
+    return [item for item in market_listings if context is None or in_context(item, context)]
 
 
 def unique_apartments(listings: list[Listing]) -> list[Listing]:
@@ -1508,7 +1520,7 @@ async def _apartment_summaries(session: AsyncSession, listings: list[Listing]) -
             (
                 member
                 for member in [item, *group]
-                if member.latitude is not None and member.longitude is not None
+                if usable_coordinates(member.latitude, member.longitude)
             ),
             item,
         )

@@ -56,6 +56,47 @@ This is a personal LAN service, not a public production system.
 - Browser sessions: preserve `data/browser-profile`; it contains the source-site login state.
 - noVNC exposure: LAN-only, password-protected, and not published to the internet.
 
+### Collector Network Recovery
+
+The host timer `samara-realty-network-recovery.timer` checks every minute whether
+scheduler still shares the running browser's network namespace. If Chrome's
+container was restarted and namespaces differ, it recreates only scheduler after
+the shared collector lock is released. It respects an intentionally stopped scheduler.
+CDP remains loopback-only; no Docker socket is mounted into application containers.
+
+Install/update from the deploy directory:
+
+```bash
+sudo install -m 644 scripts/samara-realty-network-recovery.service scripts/samara-realty-network-recovery.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now samara-realty-network-recovery.timer
+```
+
+Scheduler health checks heartbeat, CDP connectivity and collection freshness.
+Whole-cycle/browser errors are written to `/runs` as system runs. Scheduled
+collections use `--due-only` and respect each search's `interval_hours`; manual
+collections omit that flag to force a controlled check. `empty_filtered` means
+that parsed objects were rejected by domain rules, not a successful data refresh.
+Page counters now record requests processed; rule exclusion counts are in logs.
+
+### Derived Data Repair
+
+For the September 12 geography/mortgage/coordinate fixes, stop scheduler and web
+after any active collection finishes, then preview and apply:
+
+```bash
+.venv/bin/python -m scripts.repair_listing_quality data/realty.sqlite3
+.venv/bin/python -m scripts.repair_listing_quality data/realty.sqlite3 --apply
+```
+
+Apply creates and verifies a SQLite backup under `data/backups/before-quality-*`.
+Only derived district, feature and coordinate fields change; observations, prices,
+user flags and records are preserved. Coordinates inferred from matching addresses
+are tagged with `features.coordinates_inferred`. Ambiguous matches over 100 m apart
+are excluded. Do not treat inferred or source coordinates as surveyed boundaries.
+Land searches default to the server-checked radius; objects without usable
+coordinates remain accessible under `Местоположение: Не подтверждено`.
+
 ## Normal Deploy
 
 Use this path after code is committed and pushed. Deploy the current task branch, not a hard-coded branch. On the server, fetch and checkout the same branch that was pushed from the laptop.
