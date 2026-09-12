@@ -371,7 +371,7 @@ async def test_user_creates_personal_context_with_disabled_searches(factory, ove
         context = (await session.scalars(select(SearchContext))).one()
         assert context.owner_user_id == user_id
         assert context.expected_rooms == 2
-        assert context.rules and context.rules["price_max"] == "9000000"
+        assert context.price_max == 9_000_000
         searches = (await session.scalars(select(Search))).all()
         assert {search.source for search in searches} == {"cian", "domclick"}
         assert not any(search.enabled for search in searches)

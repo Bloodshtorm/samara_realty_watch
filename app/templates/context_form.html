@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Новый контекст</title>
+  <title>{{ 'Настройки контекста' if editing else 'Новый контекст' }}</title>
   <style>
     :root {
       --bg: #eef2f6;
@@ -38,7 +38,7 @@
       box-shadow: var(--shadow);
     }
     label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
-    input, select {
+    input, select, textarea {
       width: 100%;
       min-height: 36px;
       border: 1px solid var(--line);
@@ -80,77 +80,81 @@
 <body>
   <main>
     <a href="/">← Все объявления</a>
-    <h1>Новый контекст</h1>
-    <form method="post" action="/contexts">
+    <h1>{{ 'Настройки контекста' if editing else 'Новый контекст' }}</h1>
+    <form method="post" action="{{ '/contexts/' ~ editing.id ~ '/edit' if editing else '/contexts' }}">
       <label>Название
-        <input name="name" required placeholder="Например: Студии в Самаре">
+        <input name="name" required maxlength="200" value="{{ defaults.name or '' }}" placeholder="Например: Студии в Самаре">
       </label>
       <label>Тип объекта
-        <select name="object_type">
-          <option value="flat" selected>Квартира</option>
-          <option value="land">Участок</option>
+        <select name="object_type" {% if editing %}disabled{% endif %}>
+          <option value="flat" {% if defaults.object_type == 'flat' %}selected{% endif %}>Квартира</option>
+          <option value="land" {% if defaults.object_type == 'land' %}selected{% endif %}>Участок</option>
         </select>
       </label>
       <label>Комнатность
-        <select name="expected_rooms">
-          <option value="">Не применяется</option>
-          <option value="0">Студия</option>
-          <option value="1">1 комната</option>
-          <option value="2">2 комнаты</option>
-          <option value="3" selected>3 комнаты</option>
-          <option value="4">4 комнаты</option>
-          <option value="5">5 комнат</option>
+        <select name="expected_rooms" {% if editing %}disabled{% endif %}>
+          <option value="" {% if defaults.expected_rooms is none %}selected{% endif %}>Не применяется</option>
+          {% for rooms, label in [(0, 'Студия'), (1, '1 комната'), (2, '2 комнаты'), (3, '3 комнаты'), (4, '4 комнаты'), (5, '5 комнат')] %}
+          <option value="{{ rooms }}" {% if defaults.expected_rooms == rooms %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
         </select>
       </label>
       <label>Город / центр поиска
-        <input name="city" value="{{ defaults.city }}">
+        <input name="city" value="{{ defaults.city }}" {% if editing %}disabled{% endif %}>
       </label>
       <label>Радиус, км
-        <input name="radius_km" type="number" min="1" step="1" value="{{ defaults.radius_km }}">
+        <input name="radius_km" type="number" min="1" step="1" value="{{ defaults.radius_km or '' }}" {% if editing %}disabled{% endif %}>
       </label>
       <label>Цена от
-        <input name="price_min" type="number" min="0">
+        <input name="price_min" type="number" min="0" value="{{ defaults.price_min or '' }}">
       </label>
       <label>Цена до
-        <input name="price_max" type="number" min="0">
+        <input name="price_max" type="number" min="0" value="{{ defaults.price_max or '' }}">
       </label>
       <label>₽/м² до
-        <input name="price_m2_max" type="number" min="0">
+        <input name="price_m2_max" type="number" min="0" value="{{ defaults.price_m2_max or '' }}">
       </label>
       <label>Площадь от
-        <input name="area_min" type="number" min="0" step="0.1">
+        <input name="area_min" type="number" min="0" step="0.1" value="{{ defaults.area_min or '' }}">
       </label>
       <label>Площадь до
-        <input name="area_max" type="number" min="0" step="0.1">
+        <input name="area_max" type="number" min="0" step="0.1" value="{{ defaults.area_max or '' }}">
       </label>
       <label>Этаж от
-        <input name="floor_min" type="number" min="0">
+        <input name="floor_min" type="number" min="0" value="{{ defaults.floor_min or '' }}">
       </label>
       <label>Этаж до
-        <input name="floor_max" type="number" min="0">
+        <input name="floor_max" type="number" min="0" value="{{ defaults.floor_max or '' }}">
       </label>
       <label>Этажей в доме до
-        <input name="floors_total_max" type="number" min="0">
+        <input name="floors_total_max" type="number" min="0" value="{{ defaults.floors_total_max or '' }}">
       </label>
       <label>Район
-        <input name="district" placeholder="Например: октябрьский">
+        <input name="district" value="{{ defaults.district or '' }}" placeholder="Например: октябрьский">
+      </label>
+      <label>Пожелания для AI
+        <textarea name="ai_preferences" rows="5" maxlength="2000" placeholder="Например: нужна остановка рядом с домом, тихий двор и лифт">{{ defaults.ai_preferences or '' }}</textarea>
       </label>
       <div>
         <div class="muted">Источники</div>
         <div class="checks">
           {% for source in sources %}
             <label class="check">
-              <input type="checkbox" name="sources" value="{{ source }}" checked>
+              <input type="checkbox" name="sources" value="{{ source }}" {% if source in defaults.sources %}checked{% endif %} {% if editing %}disabled{% endif %}>
               {{ source }}
             </label>
           {% endfor %}
         </div>
       </div>
-      <button type="submit">Создать контекст</button>
+      <button type="submit">{{ 'Сохранить изменения' if editing else 'Создать контекст' }}</button>
+      {% if editing %}
+      <a href="/contexts/{{ editing.id }}/delete">Удалить контекст и его данные</a>
+      {% else %}
       <div class="muted">
         Поиски из формы создаются выключенными. Для 3-комнатных квартир генерируются все
         текущие источники; для участков сейчас автоматически создаются Avito и Cian.
       </div>
+      {% endif %}
     </form>
   </main>
 {% include '_search_navigation.html' %}

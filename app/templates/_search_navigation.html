@@ -15,7 +15,7 @@
     if (!link) return;
     const target = new URL(link.href);
     if (target.origin !== window.location.origin ||
-        !/^\/(listings\/|apartments\/|duplicates|contexts\/new|runs|admin\/users)/.test(target.pathname)) return;
+        !/^\/(listings\/|apartments\/|duplicates|contexts\/|runs|admin\/users)/.test(target.pathname)) return;
     const returnTo = window.location.pathname === "/"
       ? window.location.pathname + window.location.search
       : back.pathname + back.search;

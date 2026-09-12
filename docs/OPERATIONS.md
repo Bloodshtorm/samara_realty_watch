@@ -145,6 +145,30 @@ coordinates remain accessible under `Местоположение: Не подт
 
 ## Normal Deploy
 
+### Context Settings And Deletion
+
+Revision `0007_context_settings` adds typed budget/area/floor/district fields and
+`ai_preferences` to `search_contexts`, migrating their existing JSON values. It adds
+`deleted_context_slugs` to prevent YAML reimport after deletion. Existing contexts
+are now database-owned; YAML seeds missing contexts only. UI-generated source
+searches remain disabled and require the existing collector validation workflow.
+
+For this revision, wait for active collection to finish, stop scheduler and web,
+create and verify a SQLite backup with `scripts.compact_database.backup_database`,
+then run `.venv/bin/python -m alembic upgrade head` against the existing verified
+`0006_listing_ai_reviews` database. Rebuild web and recreate scheduler with the same
+new application image (without restarting browser-auth). Check revision, health and
+foreign keys. This does not fix early fresh-SQLite migration revisions.
+
+`/contexts/<id>/edit` edits the owner's settings (admins may manage all contexts).
+Saving invalidates that context's AI reviews. `/contexts/<id>/delete` previews data
+counts and requires the context name. It creates a verified compressed snapshot in
+`data/backups/before-context-delete-*.sqlite3.gz`, refuses deletion during an active
+run, and removes the context, searches, observations, reviews and exclusively-owned
+listings with dependent history/flags/links. Shared apartments are preserved.
+Debug files, source-browser state and backups are retained. SQLite reuses free pages;
+deletion does not run `VACUUM`. Do not delete a real context merely to test deployment.
+
 Mandatory for every completed change, including documentation: local checks ->
 commit task-owned files -> push -> server pull of the same branch -> server
 verification. Preserve unrelated in-progress changes; never use blanket staging

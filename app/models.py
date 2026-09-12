@@ -46,6 +46,16 @@ class SearchContext(Base):
     radius_km: Mapped[float | None] = mapped_column(Float)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     rules: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    price_min: Mapped[int | None] = mapped_column(Integer)
+    price_max: Mapped[int | None] = mapped_column(Integer)
+    price_m2_max: Mapped[int | None] = mapped_column(Integer)
+    area_min: Mapped[float | None] = mapped_column(Float)
+    area_max: Mapped[float | None] = mapped_column(Float)
+    floor_min: Mapped[int | None] = mapped_column(Integer)
+    floor_max: Mapped[int | None] = mapped_column(Integer)
+    floors_total_max: Mapped[int | None] = mapped_column(Integer)
+    district: Mapped[str | None] = mapped_column(String(200))
+    ai_preferences: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -53,6 +63,13 @@ class SearchContext(Base):
 
     searches: Mapped[list[Search]] = relationship(back_populates="context")
     owner: Mapped[User | None] = relationship(back_populates="contexts")
+
+
+class DeletedContextSlug(Base):
+    __tablename__ = "deleted_context_slugs"
+
+    slug: Mapped[str] = mapped_column(String(120), primary_key=True)
+    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class User(Base):

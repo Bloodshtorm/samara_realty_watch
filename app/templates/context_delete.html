@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Удаление контекста</title>{% include '_apartment_style.html' %}</head>
+<body><main>
+<a href="/contexts/{{ context.id }}/edit">Вернуться к настройкам</a>
+<h1>Удалить «{{ context.name }}»?</h1>
+<p>Будут удалены поиски ({{ plan.searches|length }}), объявления, принадлежащие только этому контексту ({{ plan.listings|length }}), их история, отметки и связи дублей, а также AI-разборы контекста ({{ plan.reviews }}).</p>
+<p>Сохранятся объекты, связанные с другими контекстами: {{ plan.shared }}.</p>
+<p>Перед очисткой будет создана резервная копия базы. Удаление нельзя отменить кнопкой. Резервные копии и файлы диагностики не удаляются.</p>
+<form method="post">
+<label>Введите название контекста для подтверждения
+<input name="confirm_name" required autocomplete="off"></label>
+<button type="submit">Удалить контекст и данные</button>
+</form>
+</main>{% include '_search_navigation.html' %}</body></html>

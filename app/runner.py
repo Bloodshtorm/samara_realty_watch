@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.browser import persistent_context
@@ -81,7 +81,9 @@ async def collect_once(
         async with session.begin():
             contexts = await sync_contexts_from_config(session, settings.searches_config_path)
             searches = [
-                await sync_search(session, item, contexts) for item in search_config.searches
+                await sync_search(session, item, contexts)
+                for item in search_config.searches
+                if (item.context_slug or DEFAULT_CONTEXT_SLUG) in contexts
             ]
 
     @asynccontextmanager
@@ -145,9 +147,17 @@ async def collect_once(
                 collector.batch_pages = 1 if probe else settings.avito_batch_pages
             async with session_factory() as session:
                 async with session.begin():
+                    await session.execute(
+                        update(SearchContext)
+                        .where(SearchContext.id == search.context_id)
+                        .values(enabled=SearchContext.enabled)
+                    )
                     db_search = await session.get(Search, search.id)
-                    assert db_search is not None
+                    if db_search is None:
+                        continue
                     await session.refresh(db_search, ["context"])
+                    if db_search.context is None or not db_search.context.enabled:
+                        continue
                     run = CollectorRun(source=search.source, search_id=search.id, status="started")
                     db_search.last_started_at = datetime.now(UTC)
                     session.add(run)

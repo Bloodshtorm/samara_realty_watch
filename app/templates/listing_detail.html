@@ -308,7 +308,7 @@
         <p class="muted">AI-разбор ещё не запускался.</p>
       {% endif %}
       {% if ai_enabled %}
-        <form method="post" action="/listings/{{ listing.id }}/ai-review?force=true">
+        <form method="post" action="/listings/{{ listing.id }}/ai-review?force=true&amp;context={{ request.query_params.get('context', '')|urlencode }}">
           <button type="submit">{{ "Пересчитать AI-разбор" if ai_review else "Запустить AI-разбор" }}</button>
         </form>
       {% endif %}

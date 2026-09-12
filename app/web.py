@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import math
 import re
 import time
 from collections.abc import AsyncIterator
@@ -19,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from pydantic import BaseModel, Field
-from sqlalchemy import Select, and_, exists, func, or_, select, true, update
+from sqlalchemy import Select, and_, delete, exists, func, or_, select, true, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased, defer
@@ -32,6 +33,7 @@ from app.models import (
     ApartmentUserState,
     Base,
     CollectorRun,
+    DeletedContextSlug,
     Listing,
     ListingAIReview,
     ListingLink,
@@ -45,6 +47,7 @@ from app.models import (
 )
 from app.reporting_format import format_dt, format_m2, format_percent, format_rub
 from services.ai_recommendations import (
+    AIContextChanged,
     OllamaClient,
     latest_reviews_for_listings,
     review_listing_with_cache,
@@ -68,9 +71,19 @@ from services.auth import (
     verify_password,
 )
 from services.avito_policy import AvitoPolicy
+from services.context_management import (
+    backup_before_context_delete,
+    context_deletion_plan,
+    delete_context_data,
+)
 from services.deduplication import building_key
 from services.geography import in_context, usable_coordinates
-from services.search_contexts import sync_contexts_from_config
+from services.search_contexts import (
+    CONTEXT_FIELDS,
+    context_rules,
+    set_context_fields,
+    sync_contexts_from_config,
+)
 
 PAGE_SIZE = 100
 MAP_POINTS_LIMIT = 5_000
@@ -174,6 +187,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Samara Realty Watch", lifespan=lifespan)
+
+
+@app.exception_handler(AIContextChanged)
+async def ai_context_changed_response(request: Request, exc: AIContextChanged) -> JSONResponse:
+    return JSONResponse({"detail": str(exc)}, status_code=409)
 
 
 def parse_filters(
@@ -747,7 +765,7 @@ async def listing_detail(
         .scalars()
         .all()
     )
-    ai_context = await _listing_context(session, listing, user)
+    ai_context = await _listing_context(session, listing, user, request.query_params.get("context"))
 
     return templates.TemplateResponse(
         request,
@@ -918,7 +936,7 @@ async def listing_ai_review_run(
     listing = await session.get(Listing, listing_id)
     if listing is None or not await _listing_visible_to_user(session, listing, user):
         raise HTTPException(status_code=404, detail="Listing not found")
-    context = await _listing_context(session, listing, user)
+    context = await _listing_context(session, listing, user, request.query_params.get("context"))
     await review_listing_with_cache(
         session,
         listing=listing,
@@ -946,8 +964,10 @@ async def new_context_page(request: Request, user: User = USER_DEP) -> HTMLRespo
             "sources": SOURCE_CHOICES,
             "defaults": {
                 "object_type": "flat",
+                "expected_rooms": 3,
                 "city": "Самара",
                 "radius_km": "50",
+                "sources": SOURCE_CHOICES,
             },
             "current_user": user,
         },
@@ -962,6 +982,7 @@ async def create_context(
 ) -> RedirectResponse:
     body = (await request.body()).decode()
     form = parse_qs(body, keep_blank_values=True)
+    _validate_context_form(form)
     name = _form_value(form, "name")
     object_type = _form_value(form, "object_type") or "flat"
     city = _form_value(form, "city") or "Самара"
@@ -973,7 +994,7 @@ async def create_context(
         raise HTTPException(status_code=422, detail="name is required")
     if object_type not in {"flat", "land"}:
         raise HTTPException(status_code=422, detail="object_type must be flat or land")
-    expected_rooms = int(rooms_raw) if rooms_raw else None
+    expected_rooms = int(float(rooms_raw)) if rooms_raw else None
     radius_km = float(radius_raw.replace(",", ".")) if radius_raw else None
     slug = await _unique_context_slug(session, _slugify(name))
     context = (
@@ -995,6 +1016,8 @@ async def create_context(
         rules=rules,
     )
     session.add(context)
+    set_context_fields(context, rules)
+    context.rules = {"created_from_ui": True}
     await session.flush()
     for source in sources:
         url = _generated_search_url(source, object_type, expected_rooms)
@@ -1015,6 +1038,115 @@ async def create_context(
         )
     await session.commit()
     return RedirectResponse(f"/?context={context.slug}", status_code=303)
+
+
+async def _managed_context(session: AsyncSession, context_id: UUID, user: User) -> SearchContext:
+    context = await session.get(SearchContext, context_id)
+    if (
+        context is None
+        or not context.enabled
+        or (context.owner_user_id != user.id and user.role != "admin")
+    ):
+        raise HTTPException(404, "Контекст не найден")
+    return context
+
+
+@app.get("/contexts/{context_id}/edit", response_class=HTMLResponse)
+async def edit_context_page(
+    request: Request, context_id: UUID, session: AsyncSession = SESSION_DEP, user: User = USER_DEP
+) -> HTMLResponse:
+    context = await _managed_context(session, context_id, user)
+    sources = list(
+        await session.scalars(select(Search.source).where(Search.context_id == context.id))
+    )
+    return templates.TemplateResponse(
+        request,
+        "context_form.html",
+        {
+            "editing": context,
+            "sources": SOURCE_CHOICES,
+            "current_user": user,
+            "defaults": {
+                **context_rules(context),
+                "ai_preferences": context.ai_preferences,
+                "name": context.name,
+                "city": context.city,
+                "object_type": context.object_type,
+                "expected_rooms": context.expected_rooms,
+                "radius_km": context.radius_km,
+                "sources": sources,
+            },
+        },
+    )
+
+
+@app.post("/contexts/{context_id}/edit")
+async def edit_context(
+    request: Request, context_id: UUID, session: AsyncSession = SESSION_DEP, user: User = USER_DEP
+) -> RedirectResponse:
+    context = await _managed_context(session, context_id, user)
+    form = parse_qs((await request.body()).decode(), keep_blank_values=True)
+    _validate_context_form(form)
+    await session.execute(
+        update(SearchContext)
+        .where(SearchContext.id == context.id)
+        .values(enabled=SearchContext.enabled)
+    )
+    await session.refresh(context)
+    if not context.enabled:
+        raise HTTPException(409, "Контекст был удалён")
+    context.name = _form_value(form, "name")
+    # Identity/geography and collectors keep their existing contract; editable rules narrow it.
+    set_context_fields(context, _context_rules_from_form(form))
+    context.rules = {
+        key: value
+        for key, value in (context.rules or {}).items()
+        if key not in (*CONTEXT_FIELDS, "ai_preferences")
+    }
+    await session.execute(delete(ListingAIReview).where(ListingAIReview.context_id == context.id))
+    await session.commit()
+    return RedirectResponse(f"/?context={context.slug}", status_code=303)
+
+
+@app.get("/contexts/{context_id}/delete", response_class=HTMLResponse)
+async def delete_context_page(
+    request: Request, context_id: UUID, session: AsyncSession = SESSION_DEP, user: User = USER_DEP
+) -> HTMLResponse:
+    context = await _managed_context(session, context_id, user)
+    plan = await context_deletion_plan(session, context)
+    return templates.TemplateResponse(
+        request,
+        "context_delete.html",
+        {
+            "context": context,
+            "plan": plan,
+        },
+    )
+
+
+@app.post("/contexts/{context_id}/delete")
+async def delete_context(
+    request: Request, context_id: UUID, session: AsyncSession = SESSION_DEP, user: User = USER_DEP
+) -> RedirectResponse:
+    context = await _managed_context(session, context_id, user)
+    form = parse_qs((await request.body()).decode(), keep_blank_values=True)
+    if _form_value(form, "confirm_name") != context.name:
+        raise HTTPException(422, "Введите название контекста для подтверждения удаления")
+    origin = request.headers.get("origin")
+    if origin and origin != str(request.base_url).rstrip("/"):
+        raise HTTPException(403, "Недопустимый источник запроса")
+    try:
+        await session.execute(
+            update(SearchContext)
+            .where(SearchContext.id == context.id)
+            .values(enabled=SearchContext.enabled)
+        )
+        await backup_before_context_delete(session)
+        await delete_context_data(session, context)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    await session.commit()
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/listings/{listing_id}/state")
@@ -1073,26 +1205,24 @@ def _filtered_listings_query(
     ]
     if context.expected_rooms is not None:
         conditions.append(Listing.rooms == context.expected_rooms)
-    rules = context.rules or {}
-    if filters.price_min is None and (price_min := _optional_rule_int(rules, "price_min")):
+    rules = context_rules(context)
+    if (price_min := _optional_rule_int(rules, "price_min")) is not None:
         conditions.append(Listing.price_rub >= price_min)
-    if filters.price_max is None and (price_max := _optional_rule_int(rules, "price_max")):
+    if (price_max := _optional_rule_int(rules, "price_max")) is not None:
         conditions.append(Listing.price_rub <= price_max)
-    if filters.price_m2_max is None and (price_m2_max := _optional_rule_int(rules, "price_m2_max")):
+    if (price_m2_max := _optional_rule_int(rules, "price_m2_max")) is not None:
         conditions.append(Listing.price_per_m2 <= price_m2_max)
-    if filters.area_min is None and (area_min := _optional_rule_float(rules, "area_min")):
+    if (area_min := _optional_rule_float(rules, "area_min")) is not None:
         conditions.append(Listing.area_total_m2 >= area_min)
-    if filters.area_max is None and (area_max := _optional_rule_float(rules, "area_max")):
+    if (area_max := _optional_rule_float(rules, "area_max")) is not None:
         conditions.append(Listing.area_total_m2 <= area_max)
-    if filters.floor_min is None and (floor_min := _optional_rule_int(rules, "floor_min")):
+    if (floor_min := _optional_rule_int(rules, "floor_min")) is not None:
         conditions.append(Listing.floor >= floor_min)
-    if filters.floor_max is None and (floor_max := _optional_rule_int(rules, "floor_max")):
+    if (floor_max := _optional_rule_int(rules, "floor_max")) is not None:
         conditions.append(Listing.floor <= floor_max)
-    if filters.floors_total_max is None and (
-        floors_total_max := _optional_rule_int(rules, "floors_total_max")
-    ):
+    if (floors_total_max := _optional_rule_int(rules, "floors_total_max")) is not None:
         conditions.append(Listing.floors_total <= floors_total_max)
-    if not filters.district and (district := _optional_rule_text(rules, "district")):
+    if district := _optional_rule_text(rules, "district"):
         conditions.append(Listing.district == district)
     if filters.q:
         text_queries = {
@@ -1483,19 +1613,52 @@ def _form_value(form: dict[str, list[str]], name: str) -> str:
     return values[0].strip()
 
 
+_CONTEXT_RULE_FIELDS = (
+    "price_min",
+    "price_max",
+    "price_m2_max",
+    "area_min",
+    "area_max",
+    "floor_min",
+    "floor_max",
+    "floors_total_max",
+    "district",
+    "ai_preferences",
+)
+
+
+def _validate_context_form(form: dict[str, list[str]]) -> None:
+    if not 1 <= len(_form_value(form, "name")) <= 200:
+        raise HTTPException(422, "Название должно содержать от 1 до 200 символов")
+    if len(_form_value(form, "ai_preferences")) > 2000:
+        raise HTTPException(422, "Пожелания для AI: не более 2000 символов")
+    numeric: dict[str, float] = {}
+    for key in (*_CONTEXT_RULE_FIELDS, "radius_km", "expected_rooms"):
+        value = _form_value(form, key)
+        if not value or key in {"district", "ai_preferences"}:
+            continue
+        try:
+            number = float(value.replace(",", "."))
+            if not math.isfinite(number) or number < 0 or number > 10**12:
+                raise ValueError
+            if key.startswith(("price", "floor")) or key == "expected_rooms":
+                if not number.is_integer():
+                    raise ValueError
+            numeric[key] = number
+        except ValueError as exc:
+            raise HTTPException(422, f"Некорректное значение: {key}") from exc
+    for lower, upper in (
+        ("price_min", "price_max"),
+        ("area_min", "area_max"),
+        ("floor_min", "floor_max"),
+    ):
+        if lower in numeric and upper in numeric and numeric[lower] > numeric[upper]:
+            raise HTTPException(422, "Значение «от» не может быть больше значения «до»")
+
+
 def _context_rules_from_form(form: dict[str, list[str]]) -> dict[str, object]:
     rules: dict[str, object] = {"created_from_ui": True}
-    for name in (
-        "price_min",
-        "price_max",
-        "price_m2_max",
-        "area_min",
-        "area_max",
-        "floor_min",
-        "floor_max",
-        "floors_total_max",
-        "district",
-    ):
+    for name in _CONTEXT_RULE_FIELDS:
         value = _form_value(form, name)
         if value:
             rules[name] = value
@@ -1507,7 +1670,7 @@ async def _unique_context_slug(session: AsyncSession, base_slug: str) -> str:
     index = 2
     while (
         await session.execute(select(SearchContext.id).where(SearchContext.slug == slug))
-    ).scalar_one_or_none():
+    ).scalar_one_or_none() or await session.get(DeletedContextSlug, slug) is not None:
         slug = f"{base_slug}_{index}"
         index += 1
     return slug
@@ -1656,7 +1819,10 @@ async def _listing_visible_to_user(session: AsyncSession, listing: Listing, user
 
 
 async def _listing_context(
-    session: AsyncSession, listing: Listing, user: User | None = None
+    session: AsyncSession,
+    listing: Listing,
+    user: User | None = None,
+    context_slug: str | None = None,
 ) -> SearchContext:
     stmt = (
         select(SearchContext)
@@ -1667,6 +1833,8 @@ async def _listing_context(
     )
     if user is not None and user.role != "admin":
         stmt = stmt.where(SearchContext.owner_user_id == user.id)
+    if context_slug:
+        stmt = stmt.where(SearchContext.slug == context_slug)
     context = (await session.scalars(stmt)).first()
     if context is None:
         raise HTTPException(status_code=404, detail="Listing context not found")

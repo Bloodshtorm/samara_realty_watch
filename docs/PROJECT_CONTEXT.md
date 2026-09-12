@@ -95,6 +95,14 @@ bootstrap_admin; they are not credentials for source sites. Source authenticatio
 lives in Chrome's profile. The noVNC password protects remote desktop access and is
 neither the application password nor an Avito login.
 
+Context settings are owned by the database and tied to `owner_user_id`. Revision
+`0007_context_settings` moves budget, area, floor and district rules to typed columns
+and adds a separate `ai_preferences` text column. YAML seeds missing contexts only;
+it does not overwrite user edits. Deletion/backup ownership is in
+`services/context_management.py`; `deleted_context_slugs` prevents reimport of removed
+contexts. Shared listings remain owned by their surviving contexts. See OPERATIONS
+for the migration and backup procedure.
+
 UI contexts are user-owned application records; collector searches are synchronized
 from YAML by the runner. Creating a context in the UI is not evidence that its
 searches are collected. Trace create_context and sync_search when changing this contract.
