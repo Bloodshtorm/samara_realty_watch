@@ -16,7 +16,12 @@
       -
     {% endif %}
   {% endset %}
-  <tr data-listing-row="{{ item.group_id or item.id }}">
+  <tr
+    data-listing-row="{{ item.group_id or item.id }}"
+    data-ai-key="{{ item.group_id or item.id }}"
+    data-ai-title="{{ display_title }}"
+    data-ai-price="{{ apartment.price }}"
+  >
     <td class="num" data-label="Цена">{{ apartment.price }}</td>
     <td class="num" data-label="₽/м²">{{ item.price_per_m2|rub }}</td>
     <td class="num" data-label="Площадь">{{ apartment.area }}</td>

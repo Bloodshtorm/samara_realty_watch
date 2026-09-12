@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -164,9 +165,25 @@ async def test_ai_endpoint_uses_current_filters_and_skips_hidden(
         captured["model"] = kwargs["model_name"]
         return {"created": len(listings), "reused": 0, "total": len(listings)}
 
+    async def fake_review_listing_with_cache(*args, **kwargs):
+        listing = kwargs["listing"]
+        captured["calls"].append([listing.source_listing_id])
+        return (
+            SimpleNamespace(
+                listing_id=listing.id,
+                model_name=kwargs["model_name"],
+                ai_score=77,
+                verdict="watch",
+                summary="Стоит посмотреть.",
+                updated_at=datetime.now(UTC),
+            ),
+            True,
+        )
+
     monkeypatch.setenv("AI_RECOMMENDATIONS_ENABLED", "true")
     monkeypatch.setenv("AI_RECOMMENDATION_LIMIT", "10")
     monkeypatch.setattr("app.web.review_listings", fake_review_listings)
+    monkeypatch.setattr("app.web.review_listing_with_cache", fake_review_listing_with_cache)
     now = datetime.now(UTC)
     async with factory() as session, session.begin():
         user = User(username="u", display_name="U", password_hash=hash_password("secret"))
@@ -184,15 +201,17 @@ async def test_ai_endpoint_uses_current_filters_and_skips_hidden(
             rooms=3,
         )
         visible = _listing(source_listing_id="visible", price_rub=8_000_000, last_seen_at=now)
+        other_visible = _listing(source_listing_id="other", price_rub=8_500_000, last_seen_at=now)
         too_expensive = _listing(
             source_listing_id="expensive", price_rub=12_000_000, last_seen_at=now
         )
         hidden = _listing(source_listing_id="hidden", price_rub=7_000_000, last_seen_at=now)
-        session.add_all([search, visible, too_expensive, hidden])
+        session.add_all([search, visible, other_visible, too_expensive, hidden])
         await session.flush()
-        for listing in (visible, too_expensive, hidden):
+        for listing in (visible, other_visible, too_expensive, hidden):
             session.add(ListingObservation(listing_id=listing.id, search_id=search.id))
         session.add(ListingUserState(user_id=user.id, listing_id=hidden.id, is_hidden=True))
+        visible_id = str(visible.id)
         _, token = await create_user_session(session, user, days=1)
 
     async with httpx.AsyncClient(
@@ -200,11 +219,21 @@ async def test_ai_endpoint_uses_current_filters_and_skips_hidden(
     ) as client:
         client.cookies.set(SESSION_COOKIE_NAME, token)
         response = await client.post("/ai/recommendations/run?context=ctx&price_max=9000000")
+        selected_response = await client.post(
+            "/api/ai/recommendations/review?context=ctx&price_max=9000000",
+            json={"selected_listing_id": visible_id},
+        )
         hidden_response = await client.post(
             "/ai/recommendations/run?context=ctx&price_max=9000000&view=hidden"
         )
+        hidden_selected_response = await client.post(
+            "/api/ai/recommendations/review?context=ctx&price_max=9000000&view=hidden",
+            json={"selected_listing_id": visible_id},
+        )
 
     assert response.status_code == 303
+    assert selected_response.status_code == 200
     assert hidden_response.status_code == 303
-    assert captured["calls"] == [["visible"], []]
+    assert hidden_selected_response.status_code == 404
+    assert captured["calls"] == [["visible", "other"], ["visible"], []]
     assert captured["model"] == Settings().ollama_model

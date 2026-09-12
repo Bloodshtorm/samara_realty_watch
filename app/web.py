@@ -135,6 +135,11 @@ class SpatialFilterPayload(BaseModel):
     polygon: list[tuple[float, float]] = Field(default_factory=list)
 
 
+class AIReviewPayload(BaseModel):
+    selected_listing_id: str
+    force: bool = False
+
+
 class TableRowsContext(TypedDict):
     listings: list[Listing]
     stats: dict[UUID, ListingHistoryStats]
@@ -607,6 +612,7 @@ async def listings_page(
             "context_url": _context_url,
             "current_user": user,
             "ai_enabled": Settings().ai_recommendations_enabled,
+            "ai_limit": Settings().ai_recommendation_limit,
         },
     )
 
@@ -784,12 +790,15 @@ async def ai_recommendations_run(
     candidates: list[Listing] = []
     if visible_filters.view != "hidden":
         stmt = _filtered_listings_query(visible_filters, selected_context, user)
-        candidates = unique_apartments(
-            [
-                item
-                for item in (await session.scalars(stmt)).all()
-                if in_context(item, selected_context, visible_filters.location)
-            ]
+        candidates = _select_ai_candidates(
+            unique_apartments(
+                [
+                    item
+                    for item in (await session.scalars(stmt)).all()
+                    if in_context(item, selected_context, visible_filters.location)
+                ]
+            ),
+            await _selected_ai_keys(request),
         )[: settings.ai_recommendation_limit]
     await review_listings(
         session,
@@ -807,6 +816,84 @@ async def ai_recommendations_run(
     )
     await session.commit()
     return RedirectResponse(_local_return(request), status_code=303)
+
+
+@app.post("/api/ai/recommendations/review")
+async def ai_recommendation_review(
+    payload: AIReviewPayload,
+    filters: ListingFilters = FILTERS_DEP,
+    session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
+) -> dict[str, object]:
+    settings = Settings()
+    if not settings.ai_recommendations_enabled:
+        raise HTTPException(status_code=409, detail="AI recommendations are disabled")
+    contexts = await _contexts(session, user)
+    if not contexts:
+        raise HTTPException(status_code=404, detail="Search context not found")
+    selected_context = _selected_context(contexts, filters.context)
+    visible_filters = replace(filters, context=selected_context.slug)
+    if visible_filters.view == "hidden":
+        raise HTTPException(status_code=404, detail="Listing not found")
+    stmt = _filtered_listings_query(visible_filters, selected_context, user)
+    candidates = _select_ai_candidates(
+        unique_apartments(
+            [
+                item
+                for item in (await session.scalars(stmt)).all()
+                if in_context(item, selected_context, visible_filters.location)
+            ]
+        ),
+        {payload.selected_listing_id},
+    )
+    if not candidates:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    review, created = await review_listing_with_cache(
+        session,
+        listing=candidates[0],
+        context=selected_context,
+        user=user,
+        model_name=settings.ollama_model,
+        prompt_version=settings.ai_prompt_version,
+        client=OllamaClient(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+            prompt_version=settings.ai_prompt_version,
+        ),
+        force=payload.force,
+    )
+    await session.commit()
+    return {
+        "status": "created" if created else "reused",
+        "listing_id": str(review.listing_id),
+        "model_name": review.model_name,
+        "ai_score": review.ai_score,
+        "verdict": review.verdict,
+        "summary": review.summary,
+        "updated_at": format_dt(review.updated_at),
+    }
+
+
+async def _selected_ai_keys(request: Request) -> set[str]:
+    body = (await request.body()).decode()
+    if not body:
+        return set()
+    form = parse_qs(body, keep_blank_values=True)
+    raw_values = form.get("selected_listing_ids", [])
+    values: set[str] = set()
+    for raw_value in raw_values:
+        values.update(item.strip() for item in raw_value.split(",") if item.strip())
+    return values
+
+
+def _select_ai_candidates(candidates: list[Listing], selected_keys: set[str]) -> list[Listing]:
+    if not selected_keys:
+        return candidates
+    return [
+        item
+        for item in candidates
+        if str(item.group_id or item.id) in selected_keys or str(item.id) in selected_keys
+    ]
 
 
 @app.post("/listings/{listing_id}/ai-review")
