@@ -146,6 +146,11 @@ Evidence from the preceding operator check on 2026-09-12 at baseline `9e3b79d`:
 
 ## Offline Context Checks
 
+Commercial-readiness gaps and release gates are tracked in
+[PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md). Group detail and summaries enforce the
+same account ownership boundary as individual listings; regression coverage is in
+`tests/test_product_isolation.py`.
+
 From the project root, using a real interpreter in the existing venv:
 
 ```text

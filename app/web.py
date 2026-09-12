@@ -597,8 +597,24 @@ async def listings_page(
     )
     map_listings = row_candidates[:MAP_POINTS_LIMIT]
     map_user_states = await _user_states(session, [item.id for item in map_listings], user)
-    districts = (await session.execute(_distinct_values(Listing.district))).scalars().all()
-    sources = (await session.execute(_distinct_values(Listing.source))).scalars().all()
+    districts = (
+        (
+            await session.execute(
+                _distinct_values(Listing.district).where(_visible_listing_condition(user))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    sources = (
+        (
+            await session.execute(
+                _distinct_values(Listing.source).where(_visible_listing_condition(user))
+            )
+        )
+        .scalars()
+        .all()
+    )
     last_run = (
         await session.execute(
             select(CollectorRun).order_by(CollectorRun.started_at.desc()).limit(1)
@@ -606,7 +622,7 @@ async def listings_page(
     ).scalar_one_or_none()
 
     map_points = _map_points(
-        map_listings, map_user_states, await _apartment_summaries(session, map_listings)
+        map_listings, map_user_states, await _apartment_summaries(session, map_listings, user)
     )
     return templates.TemplateResponse(
         request,
@@ -1377,7 +1393,7 @@ async def _table_rows_context(
         if user
         else {},
         "user_states": await _user_states(session, [item.id for item in listings], user),
-        "apartments": await _apartment_summaries(session, listings),
+        "apartments": await _apartment_summaries(session, listings, user),
     }
 
 
@@ -1804,20 +1820,27 @@ async def _apartment_user_state(
 
 
 async def _listing_visible_to_user(session: AsyncSession, listing: Listing, user: User) -> bool:
-    if user.role == "admin":
-        return True
-    return bool(
+    return (
         await session.scalar(
-            select(func.count())
-            .select_from(ListingObservation)
-            .join(Search, ListingObservation.search_id == Search.id)
-            .join(SearchContext, Search.context_id == SearchContext.id)
-            .where(
-                ListingObservation.listing_id == listing.id,
-                SearchContext.owner_user_id == user.id,
-            )
+            select(Listing.id).where(Listing.id == listing.id, _visible_listing_condition(user))
         )
+        is not None
     )
+
+
+def _visible_listing_condition(user: User | None) -> ColumnElement[bool]:
+    if user is None or user.role == "admin":
+        return true()
+    return exists(
+        select(ListingObservation.id)
+        .join(Search)
+        .join(SearchContext)
+        .where(
+            ListingObservation.listing_id == Listing.id,
+            SearchContext.owner_user_id == user.id,
+            SearchContext.enabled.is_(True),
+        )
+    ).correlate(Listing)
 
 
 async def _listing_context(
@@ -1904,13 +1927,16 @@ def _range_label(values, formatter) -> str:
     return f"{formatter(numbers[0])} – {formatter(numbers[-1])}"
 
 
-async def _apartment_summaries(session: AsyncSession, listings: list[Listing]) -> dict[UUID, dict]:
+async def _apartment_summaries(
+    session: AsyncSession, listings: list[Listing], user: User | None = None
+) -> dict[UUID, dict]:
     group_ids = {item.group_id for item in listings if item.group_id}
     members: dict[UUID, list[Listing]] = {}
     if group_ids:
         rows = await session.scalars(
             select(Listing)
             .where(Listing.group_id.in_(group_ids))
+            .where(_visible_listing_condition(user))
             .options(defer(Listing.raw_payload))
         )
         for row in rows:
@@ -2081,12 +2107,14 @@ async def apartment_detail(
     user: User = USER_DEP,
 ) -> HTMLResponse:
     group = await session.get(ApartmentGroup, group_id)
-    members = await group_members(session, group_id)
+    members = list(
+        await session.scalars(
+            select(Listing)
+            .where(Listing.group_id == group_id, _visible_listing_condition(user))
+            .order_by(Listing.source, Listing.id)
+        )
+    )
     if group is None or not members:
-        raise HTTPException(404, "Apartment not found")
-    if user.role != "admin" and not any(
-        [await _listing_visible_to_user(session, item, user) for item in members]
-    ):
         raise HTTPException(404, "Apartment not found")
     histories: dict[UUID, list[PriceHistory]] = {item.id: [] for item in members}
     for change in (
@@ -2104,7 +2132,7 @@ async def apartment_detail(
             "group": group,
             "members": members,
             "histories": histories,
-            "summary": (await _apartment_summaries(session, [members[0]]))[members[0].id],
+            "summary": (await _apartment_summaries(session, [members[0]], user))[members[0].id],
             "user_state": await _apartment_user_state(session, group_id, user),
             "current_user": user,
         },

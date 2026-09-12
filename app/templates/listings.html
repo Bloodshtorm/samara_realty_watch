@@ -974,9 +974,9 @@
     <header>
       <div>
         <h1>Samara Realty Watch</h1>
-        <div class="muted">Личный агрегатор трёхкомнатных квартир</div>
+        <div class="muted">Подбор недвижимости</div>
       </div>
-      {% if last_run %}
+      {% if last_run and current_user.role == 'admin' %}
         <a class="status" href="/runs" title="Открыть историю сборов">
           <span class="dot" aria-hidden="true"></span>
           Последний сбор: {{ last_run.started_at|dt }} · {{ last_run.status }}
@@ -1149,7 +1149,7 @@
       </form>
       {% endif %}
       <nav class="views" aria-label="Разделы">
-        <a class="view-tab" href="/duplicates">Проверка дублей</a>
+        {% if current_user.role == 'admin' %}<a class="view-tab" href="/duplicates">Проверка дублей</a>{% endif %}
         <a class="view-tab{% if filters.view == 'active' %} active{% endif %}" href="{{ view_url(request, 'active') }}">
           Активные
         </a>

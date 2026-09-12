@@ -2,7 +2,7 @@
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Квартира · Samara Realty Watch</title>{% include '_apartment_style.html' %}</head>
 <body><main>
-<nav><a href="/">Объекты</a><a href="/duplicates?group_id={{ group.id }}">Совпадения этой квартиры</a><a href="/duplicates">Проверка дублей</a></nav>
+<nav><a href="/">Объекты</a>{% if current_user.role == 'admin' %}<a href="/duplicates?group_id={{ group.id }}">Совпадения этой квартиры</a><a href="/duplicates">Проверка дублей</a>{% endif %}</nav>
 <header>
 <div class="muted">Источников: {{ summary.source_count }}</div>
 <h1>{{ members[0].address_normalized or members[0].address_raw or 'Квартира' }}</h1>
@@ -19,7 +19,7 @@
 <td data-label="Цена, ₽">{{ item.price_rub|rub }}</td><td data-label="Площадь, м²">{{ item.area_total_m2|m2 }}</td>
 <td data-label="Этаж">{{ item.floor if item.floor is not none else '-' }}/{{ item.floors_total or '-' }}</td>
 <td data-label="Последний раз">{{ item.last_seen_at|dt }}</td><td data-label="Статус">{{ 'Активно' if item.is_active else 'Неактивно' }}</td>
-<td>{% if members|length > 1 %}<form method="post" action="/apartments/{{ group.id }}/split?listing_id={{ item.id }}"><button title="Отделить это объявление в другую квартиру">Отделить</button></form>{% endif %}</td>
+<td>{% if current_user.role == 'admin' and members|length > 1 %}<form method="post" action="/apartments/{{ group.id }}/split?listing_id={{ item.id }}"><button title="Отделить это объявление в другую квартиру">Отделить</button></form>{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>
 <h2>История цен по площадкам</h2>
 {% for item in members %}<details><summary>{{ item.source }} · {{ histories[item.id]|length }} изменений</summary>
