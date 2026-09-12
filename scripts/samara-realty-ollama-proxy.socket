@@ -1,0 +1,9 @@
+[Unit]
+Description=Samara Realty Ollama bridge proxy socket
+
+[Socket]
+ListenStream=172.17.0.1:11434
+NoDelay=true
+
+[Install]
+WantedBy=sockets.target

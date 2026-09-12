@@ -1,0 +1,9 @@
+[Unit]
+Description=Samara Realty Ollama bridge proxy
+Documentation=man:systemd-socket-proxyd(8)
+Requires=samara-realty-ollama-proxy.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:11434
+NoNewPrivileges=true
+PrivateTmp=true
