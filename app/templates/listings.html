@@ -26,6 +26,7 @@
       --shadow: 0 10px 28px rgba(15, 23, 42, .08);
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body {
       margin: 0;
       background: var(--bg);
@@ -673,10 +674,13 @@
       border-color: #fecaca;
     }
     .ai-progress-title {
+      display: block;
+      overflow-wrap: anywhere;
       font-weight: 700;
       line-height: 1.3;
     }
     .ai-progress-detail {
+      display: block;
       margin-top: 3px;
       color: var(--muted);
       font-size: 13px;
@@ -1166,7 +1170,7 @@
       </div>
       <div class="map-panel-header">
         <strong>{{ selected_context.name }}</strong>
-        На карте: {{ map_points_count }} из {{ total }} найденных
+        <span id="map-count-summary">На карте: {{ map_points_count }} из {{ total }} найденных</span>
         {% if map_source_count >= map_points_limit and total > map_points_limit %}
           <br>Ограничение карты: {{ map_points_limit }}
         {% endif %}
@@ -1406,6 +1410,7 @@
       aiProgressModal?.classList.remove("open");
       aiProgressModal?.setAttribute("aria-hidden", "true");
       document.body.style.overflow = "";
+      aiShowProgress?.focus();
     };
 
     const openAiProgress = () => {
@@ -1632,6 +1637,7 @@
       selectionSummary.textContent = `${label}: ${data.total}`;
       document.getElementById("found-count").textContent = data.total;
       document.getElementById("shown-count").textContent = data.shown;
+      document.getElementById("map-count-summary").textContent = `В выбранной области: ${data.total}. На всей карте: {{ map_points_count }}`;
       resetAreaButton.disabled = false;
       attachMapFocusButtons();
       attachCardButtons();
@@ -1735,6 +1741,7 @@
       selectedListingIds = null;
       document.getElementById("found-count").textContent = "{{ total }}";
       document.getElementById("shown-count").textContent = "{{ listings|length }}";
+      document.getElementById("map-count-summary").textContent = "На карте: {{ map_points_count }} из {{ total }} найденных";
       if (aiSelectedListingIds) {
         aiSelectedListingIds.value = "";
       }
