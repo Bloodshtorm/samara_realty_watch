@@ -147,6 +147,22 @@ coordinates remain accessible under `Местоположение: Не подт
 
 ### Context Settings And Deletion
 
+Revision `0010_collection_requests` adds durable `collection_requested_at` and
+`auto_collect` to searches. Existing active UI-created contexts are enrolled;
+YAML/legacy searches are unchanged. Start from verified `0009_context_building_floors`,
+wait for the shared collector lock, stop scheduler/web, create a verified backup,
+apply the additive migration and compare counts/integrity before restarting both
+services with the new image. Do not restart browser-auth or reset source policies.
+
+Context creation queues collection automatically within the existing user quota.
+The scheduler checks requests every ten seconds while idle; an active cycle must
+finish first. Initial validation uses one page per source; useful results enable
+regular batches at `interval_hours`. Failed validation is retried on regular ticks,
+without bypassing cooldown/CAPTCHA rules. `/contexts/<id>/collection` shows status
+to the owner/admin and provides an optional admin refresh. The DB queue survives
+web/container restart. No Docker socket, shell invocation or CDP access is added
+to the web process. CLI `collect --requested-only` still requires the shared flock.
+
 Revision `0008_user_context_limit` adds `users.context_limit`, default one. Existing
 accounts retain at least their active context count. Admins can grant additional
 capacity at `/admin/users`; creation is enforced transactionally, admins are exempt.
@@ -158,7 +174,8 @@ Revision `0007_context_settings` adds typed budget/area/floor/district fields an
 `ai_preferences` to `search_contexts`, migrating their existing JSON values. It adds
 `deleted_context_slugs` to prevent YAML reimport after deletion. Existing contexts
 are now database-owned; YAML seeds missing contexts only. UI-generated source
-searches remain disabled and require the existing collector validation workflow.
+searches originally remained disabled; revision 0010 automates bounded validation
+before enabling scheduled batches.
 
 For this revision, wait for active collection to finish, stop scheduler and web,
 create and verify a SQLite backup with `scripts.compact_database.backup_database`,

@@ -24,8 +24,9 @@ renewal/expiry remain manual; there is no automatic billing integration yet.
 
 - Maintain server-side ownership checks on every read and write, including grouped
   source listings, map summaries and AI results. Test with multiple non-admin users.
-- Make new context activation explicit. Today UI-generated searches are disabled
-  and the scheduler loads YAML searches; creating a context does not start collection.
+- UI-created contexts automatically queue a bounded first collection and then
+  update validated sources on schedule. Keep source errors visible and validate
+  generated source URLs for each supported city/property/room combination.
 - Separate admin diagnostics and grouping operations from customer navigation.
 - Offer maintenance preview, backup and cleanup reports. Legacy unassigned data
   must be attributed or explicitly approved for deletion, not deleted heuristically.

@@ -103,9 +103,14 @@ it does not overwrite user edits. Deletion/backup ownership is in
 contexts. Shared listings remain owned by their surviving contexts. See OPERATIONS
 for the migration and backup procedure.
 
-UI contexts are user-owned application records; collector searches are synchronized
-from YAML by the runner. Creating a context in the UI is not evidence that its
-searches are collected. Trace create_context and sync_search when changing this contract.
+UI context creation atomically queues source searches with `auto_collect=True`.
+The scheduler polls durable DB requests every ten seconds while idle, using the
+same collector flock and existing CDP session. First runs are capped at one page;
+only useful parsed results enable full scheduled batches. DB-managed automatic
+searches are included alongside YAML jobs; legacy disabled searches stay disabled.
+Source failures retry on the configured interval, not on every queue poll. Access
+blocks and Avito budgets remain authoritative. Per-context status is available at
+`/contexts/<id>/collection`; only administrators can request an extra refresh.
 
 ## Invariants And Limits
 

@@ -1,0 +1,39 @@
+<section data-pending="{{ 'true' if pending else 'false' }}" aria-label="Состояние поиска">
+  {% if not searches %}
+    <p>Для этого контекста пока нет подключённых площадок.</p>
+  {% else %}
+    <div class="actions">
+      {% if current_user.role == 'admin' %}
+      <form method="post" action="/contexts/{{ context.id }}/collection?return_to={{ back_url|urlencode }}">
+        <button type="submit" {% if pending %}disabled{% endif %}>{{ 'Поиск запрошен' if pending else 'Обновить сейчас' }}</button>
+      </form>
+      {% endif %}
+      <a href="{{ back_url }}">Открыть объявления</a>
+    </div>
+    {% if pending %}<p role="status">Задание принято. Площадки обрабатываются по очереди; если сборщик занят, запуск дождётся его освобождения.</p>{% endif %}
+    <p class="muted">Новые площадки сначала проходят короткую проверку. Рабочие источники обновляются автоматически.</p>
+    {% for search in searches %}
+    <article>
+      <div>
+        <strong>{{ search.source }}</strong>
+        <p>
+        {% if search.collection_requested_at %}
+          {% if search.last_status == 'started' and search.last_started_at and search.last_started_at >= search.collection_requested_at %}Идёт сбор{% else %}В очереди{% endif %}
+        {% else %}{{ statuses.get(search.last_status, 'Ещё не запускался') }}{% endif %}
+        </p>
+        {% if search.last_error and not search.collection_requested_at %}<p class="error">{{ search.last_error }}</p>{% endif %}
+        {% if search.last_completed_at %}<p class="muted">Последний результат: {{ search.last_completed_at.strftime('%Y-%m-%d %H:%M') }} UTC</p>{% endif %}
+        {% set run = latest_runs.get(search.id) %}
+        {% if run and run.finished_at %}<p>Найдено: {{ run.listings_found }} · Новых: {{ run.listings_created }} · Обновлено: {{ run.listings_updated }}</p>{% endif %}
+        <p class="muted">{% if search.enabled %}Автоматический сбор включён{% elif search.auto_collect %}Автоматическая проверка и повторный запуск{% else %}Только ручной запуск{% endif %}</p>
+      </div>
+      {% if current_user.role == 'admin' %}
+      <form method="post" action="/contexts/{{ context.id }}/collection?return_to={{ back_url|urlencode }}">
+        <input type="hidden" name="search_id" value="{{ search.id }}">
+        <button type="submit" {% if search.collection_requested_at %}disabled{% endif %}>Запустить {{ search.source }}</button>
+      </form>
+      {% endif %}
+    </article>
+    {% endfor %}
+  {% endif %}
+</section>

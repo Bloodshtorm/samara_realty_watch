@@ -127,6 +127,8 @@ class Search(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    collection_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    auto_collect: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     last_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_status: Mapped[str | None] = mapped_column(String(50))
     last_error: Mapped[str | None] = mapped_column(Text)

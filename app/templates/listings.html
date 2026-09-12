@@ -1001,6 +1001,8 @@
         {% endfor %}
       </nav>
       <a class="button secondary" href="/contexts/{{ selected_context.id }}/edit">Настройки контекста</a>
+      <a class="button secondary" href="/contexts/{{ selected_context.id }}/collection">Статус поиска</a>
+      {% if collection_pending %}<span role="status">Поиск запускается или выполняется</span>{% elif collection_errors %}<span role="status">Площадки с ошибками: {{ collection_errors }}</span>{% endif %}
       {% if current_user.role != 'admin' %}<span class="muted">Контексты: {{ contexts|length }} / {{ current_user.context_limit }}</span>{% endif %}
       <a class="button secondary" href="/contexts/new">Новый контекст</a>
     </section>

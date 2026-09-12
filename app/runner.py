@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.browser import persistent_context
@@ -69,14 +69,27 @@ async def collect_once(
     only_source: str | None = None,
     only_search: str | None = None,
     due_only: bool = False,
+    requested_only: bool = False,
 ) -> None:
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
+    if requested_only:
+        async with session_factory() as session:
+            pending = await session.scalar(
+                select(Search.id)
+                .join(SearchContext)
+                .where(Search.collection_requested_at.is_not(None), SearchContext.enabled.is_(True))
+                .limit(1)
+            )
+        if pending is None:
+            await engine.dispose()
+            return
     scoring_config = load_yaml(settings.scoring_config_path)
     search_config = load_search_config(settings.searches_config_path)
     async with session_factory() as session:
         async with session.begin():
-            await prune_history(session)
+            if not requested_only:
+                await prune_history(session)
     async with session_factory() as session:
         async with session.begin():
             contexts = await sync_contexts_from_config(session, settings.searches_config_path)
@@ -85,6 +98,18 @@ async def collect_once(
                 for item in search_config.searches
                 if (item.context_slug or DEFAULT_CONTEXT_SLUG) in contexts
             ]
+            configured_ids = {s.id for s in searches}
+            queued = await session.scalars(
+                select(Search)
+                .join(SearchContext)
+                .where(
+                    SearchContext.enabled.is_(True),
+                    or_(Search.auto_collect.is_(True), Search.collection_requested_at.is_not(None)),
+                )
+            )
+            searches.extend(s for s in queued if s.id not in configured_ids)
+            if requested_only:
+                searches = [s for s in searches if s.collection_requested_at is not None]
 
     @asynccontextmanager
     async def browser():
@@ -93,6 +118,18 @@ async def collect_once(
                 yield context
         except Exception as exc:
             async with session_factory() as failure_session, failure_session.begin():
+                await failure_session.execute(
+                    update(Search)
+                    .where(
+                        Search.id.in_([s.id for s in searches]),
+                        Search.collection_requested_at.is_not(None),
+                    )
+                    .values(
+                        collection_requested_at=None,
+                        last_status="failed",
+                        last_error="Не удалось подключить сборщик. Проверьте историю сборов.",
+                    )
+                )
                 failure_session.add(
                     CollectorRun(
                         status="failed",
@@ -114,20 +151,43 @@ async def collect_once(
     if avito.snapshot().get("probe_in_progress"):
         avito.finish_probe(False)
     # One-page watch searches first; rotate discovery batches without losing history.
-    searches.sort(key=lambda item: item.source == "avito" and item.max_pages > 1)
+    searches.sort(
+        key=lambda item: (
+            item.collection_requested_at is None,
+            item.source == "avito" and item.max_pages > 1,
+        )
+    )
     async with browser() as context:
         for search in searches:
-            if not search.enabled:
+            manual = search.collection_requested_at is not None
+            validation = search.auto_collect and not search.enabled
+            if not search.enabled and not manual and not validation:
                 continue
             if only_source and search.source != only_source:
                 continue
             if only_search and search.name != only_search:
                 continue
             pending_probe = search.source == "avito" and avito.snapshot().get("probe_requested")
-            if due_only and not pending_probe and not search_is_due(search, datetime.now(UTC)):
+            if (
+                due_only
+                and not manual
+                and not pending_probe
+                and not search_is_due(search, datetime.now(UTC))
+            ):
                 continue
             collector = COLLECTORS.get(search.source)
             if collector is None:
+                if manual:
+                    async with session_factory() as unsupported, unsupported.begin():
+                        await unsupported.execute(
+                            update(Search)
+                            .where(Search.id == search.id)
+                            .values(
+                                collection_requested_at=None,
+                                last_status="failed",
+                                last_error="Площадка не поддерживается сборщиком.",
+                            )
+                        )
                 continue
             probe = False
             if isinstance(collector, AvitoCollector):
@@ -136,15 +196,30 @@ async def collect_once(
                     avito.check()
                 except AvitoPaused as exc:
                     log.info("source_paused", source="avito", reason=str(exc))
+                    if manual or validation:
+                        async with session_factory() as paused_session, paused_session.begin():
+                            await paused_session.execute(
+                                update(Search)
+                                .where(Search.id == search.id)
+                                .values(
+                                    collection_requested_at=None,
+                                    last_status="paused",
+                                    last_error=str(exc),
+                                )
+                            )
                     continue
                 cursor = avito.search_state(search.name)
-                if due_only and not probe and cursor.get("due_at", 0) > time.time():
+                if due_only and not manual and not probe and cursor.get("due_at", 0) > time.time():
                     continue
                 collector.policy = avito
                 collector.start_page = (
-                    1 if probe else min(cursor.get("next_page", 1), search.max_pages)
+                    1
+                    if probe or manual or validation
+                    else min(cursor.get("next_page", 1), search.max_pages)
                 )
-                collector.batch_pages = 1 if probe else settings.avito_batch_pages
+                collector.batch_pages = (
+                    1 if probe or manual or validation else settings.avito_batch_pages
+                )
             async with session_factory() as session:
                 async with session.begin():
                     await session.execute(
@@ -160,6 +235,8 @@ async def collect_once(
                         continue
                     run = CollectorRun(source=search.source, search_id=search.id, status="started")
                     db_search.last_started_at = datetime.now(UTC)
+                    db_search.last_status = "started"
+                    db_search.last_error = None
                     session.add(run)
                     await session.flush()
                     run_id = run.id
@@ -170,7 +247,14 @@ async def collect_once(
                         screenshots_dir=settings.screenshots_dir,
                         html_dir=settings.html_dumps_dir,
                     )
-                    parsed = await collector.collect_search(search, context)
+                    # Validate new searches with one page before enabling full scheduled batches.
+                    original_max_pages = search.max_pages
+                    if manual or validation:
+                        search.max_pages = 1
+                    try:
+                        parsed = await collector.collect_search(search, context)
+                    finally:
+                        search.max_pages = original_max_pages
                     raw_count = len(parsed)
                     if not raw_count and not (
                         isinstance(collector, AvitoCollector) and collector.reached_end
@@ -232,6 +316,10 @@ async def collect_once(
                         run_in_db.listings_updated = updated
                         run_in_db.price_changes_found = price_changes
                         db_search.last_status = run_in_db.status
+                        if db_search.auto_collect and parsed:
+                            db_search.enabled = True
+                        if manual:
+                            db_search.collection_requested_at = None
                         db_search.last_error = None
                         db_search.last_completed_at = datetime.now(UTC)
                     if isinstance(collector, AvitoCollector):
@@ -275,6 +363,8 @@ async def collect_once(
                         )
                         run_in_db.debug_html_path = getattr(collector, "last_debug_html_path", None)
                         db_search.last_status = "failed"
+                        if manual:
+                            db_search.collection_requested_at = None
                         db_search.last_error = str(exc)
                         await send_telegram(settings, format_error_message(search.source, str(exc)))
                     log.exception("collect_failed", source=search.source, search_id=str(search.id))
@@ -286,8 +376,8 @@ async def collect_once(
 
 
 def search_is_due(search: Search, now: datetime) -> bool:
-    last = search.last_completed_at
-    if last is None or search.last_status == "failed":
+    last = search.last_started_at if search.auto_collect else search.last_completed_at
+    if last is None or (not search.auto_collect and search.last_status == "failed"):
         return True
     if last.tzinfo is None:
         last = last.replace(tzinfo=UTC)

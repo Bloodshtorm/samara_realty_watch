@@ -12,17 +12,22 @@ trap 'cleanup; exit 0' TERM INT
 trap cleanup EXIT
 while true; do touch /tmp/scheduler-heartbeat; sleep 30; done &
 heartbeat=$!
+next_scheduled=0
 while true; do
-  started=$SECONDS
-  bash /app/scripts/container-collect.sh --due-only &
+  mode=--requested-only
+  if (( SECONDS >= next_scheduled )); then
+    mode=--due-only
+    next_scheduled=$(( SECONDS + ${COLLECT_INTERVAL_SECONDS:-10800} ))
+  fi
+  bash /app/scripts/container-collect.sh "$mode" &
   child=$!
   result=0
   wait "$child" || result=$?
   child=""
-  echo "Collection finished with exit code $result"
-  delay=$(( ${COLLECT_INTERVAL_SECONDS:-10800} - (SECONDS - started) ))
-  (( delay > 0 )) || delay=1
-  sleep "$delay" &
+  if [[ "$mode" == --due-only ]] || (( result != 0 )); then
+    echo "Collection $mode finished with exit code $result"
+  fi
+  sleep 10 &
   child=$!
   wait "$child" || true
   child=""

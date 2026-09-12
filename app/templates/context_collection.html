@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Поиск объявлений · {{ context.name }}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eef2f6; color: #19202a; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 1000px; padding: 24px 16px; margin: auto; }
+    h1 { font-size: 24px; margin: 16px 0 4px; overflow-wrap: anywhere; }
+    h2 { font-size: 18px; }
+    a { color: #0f766e; }
+    nav, .actions { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    section { margin-top: 20px; }
+    article { padding: 16px 0; border-top: 1px solid #cbd5df; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+    p { margin: 6px 0; overflow-wrap: anywhere; }
+    .muted { color: #657080; }
+    .error { color: #a33323; }
+    button { padding: 8px 12px; min-height: 38px; border: 1px solid #0f766e; border-radius: 6px; background: #0f766e; color: white; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: default; }
+    @media (max-width: 480px) { article { grid-template-columns: minmax(0, 1fr); } }
+  </style>
+</head>
+<body><main>
+  <nav><a href="{{ back_url }}">К объявлениям</a><a href="/contexts/{{ context.id }}/edit">Настройки контекста</a></nav>
+  <h1>{{ context.name }}</h1>
+  <h2>Поиск объявлений</h2>
+  <div id="collection-status">{% include '_context_collection.html' %}</div>
+  <p id="connection-status" role="status" class="error"></p>
+</main>
+<script>
+  const statusPanel = document.getElementById('collection-status');
+  const connectionStatus = document.getElementById('connection-status');
+  document.addEventListener('submit', (event) => {
+    if (!statusPanel.contains(event.target)) return;
+    const button = event.submitter;
+    if (button) { button.disabled = true; button.textContent = 'Отправляем…'; }
+  });
+  async function refresh() {
+    if (!statusPanel.querySelector('[data-pending="true"]')) return;
+    try {
+      const url = new URL(location.href);
+      url.searchParams.set('fragment', 'true');
+      const response = await fetch(url, {cache: 'no-store'});
+      if (response.redirected || !response.ok) throw new Error();
+      statusPanel.innerHTML = await response.text();
+      connectionStatus.textContent = '';
+    } catch {
+      connectionStatus.textContent = 'Не удалось обновить статус. Повторяем подключение…';
+    }
+    setTimeout(refresh, 3000);
+  }
+  setTimeout(refresh, 3000);
+</script>
+{% include '_search_navigation.html' %}
+</body></html>

@@ -99,8 +99,17 @@ def collect(
     due_only: bool = typer.Option(
         False, help="Run searches whose configured interval has elapsed."
     ),
+    requested_only: bool = typer.Option(False, help="Run manual requests queued in the database."),
 ) -> None:
-    asyncio.run(collect_once(settings(), only_source=source, only_search=search, due_only=due_only))
+    asyncio.run(
+        collect_once(
+            settings(),
+            only_source=source,
+            only_search=search,
+            due_only=due_only,
+            requested_only=requested_only,
+        )
+    )
 
 
 @cli.command()

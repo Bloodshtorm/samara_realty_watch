@@ -636,6 +636,13 @@ async def listings_page(
         return RedirectResponse("/contexts/new", status_code=303)
     selected_context = _selected_context(contexts, filters.context)
     filters.context = selected_context.slug
+    collection_searches = list(
+        await session.scalars(select(Search).where(Search.context_id == selected_context.id))
+    )
+    collection_pending = any(
+        s.collection_requested_at or s.last_status == "started" for s in collection_searches
+    )
+    collection_errors = sum(s.last_status in {"failed", "paused"} for s in collection_searches)
     stmt = _filtered_listings_query(filters, selected_context, user)
     row_candidates = unique_apartments(
         [
@@ -690,6 +697,8 @@ async def listings_page(
             "last_run": last_run,
             "contexts": contexts,
             "selected_context": selected_context,
+            "collection_pending": collection_pending,
+            "collection_errors": collection_errors,
             "map_points": Markup(json.dumps(map_points, ensure_ascii=False)),
             "map_points_count": len(map_points),
             "map_source_count": len(map_listings),
@@ -1115,8 +1124,10 @@ async def create_context(
                 city=city,
                 rooms=expected_rooms if expected_rooms is not None else 0,
                 enabled=False,
+                auto_collect=True,
+                collection_requested_at=datetime.now(UTC),
                 interval_hours=12,
-                max_pages=20,
+                max_pages=3,
             )
         )
     await session.commit()
@@ -1160,6 +1171,91 @@ async def edit_context_page(
                 "sources": sources,
             },
         },
+    )
+
+
+@app.get("/contexts/{context_id}/collection", response_class=HTMLResponse)
+async def context_collection_page(
+    request: Request,
+    context_id: UUID,
+    fragment: bool = False,
+    session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
+) -> HTMLResponse:
+    context = await _managed_context(session, context_id, user)
+    searches = list(
+        await session.scalars(
+            select(Search)
+            .where(Search.context_id == context.id)
+            .order_by(Search.source, Search.name)
+        )
+    )
+    latest_runs: dict[UUID | None, CollectorRun] = {}
+    runs = await session.scalars(
+        select(CollectorRun)
+        .where(CollectorRun.search_id.in_([s.id for s in searches]))
+        .order_by(CollectorRun.started_at.desc())
+    )
+    for run in runs:
+        latest_runs.setdefault(run.search_id, run)
+    return templates.TemplateResponse(
+        request,
+        "_context_collection.html" if fragment else "context_collection.html",
+        {
+            "context": context,
+            "searches": searches,
+            "current_user": user,
+            "latest_runs": latest_runs,
+            "back_url": _safe_next(
+                request.query_params.get("return_to", f"/?context={context.slug}")
+            ),
+            "pending": any(
+                s.collection_requested_at or s.last_status == "started" for s in searches
+            ),
+            "statuses": {
+                "started": "Идёт сбор",
+                "completed": "Завершён",
+                "partial": "Собрана часть объявлений",
+                "empty_filtered": "Нет подходящих объявлений",
+                "failed": "Ошибка сбора",
+                "paused": "Площадка приостановлена",
+            },
+        },
+    )
+
+
+@app.post("/contexts/{context_id}/collection")
+async def request_context_collection(
+    request: Request,
+    context_id: UUID,
+    session: AsyncSession = SESSION_DEP,
+    user: User = ADMIN_DEP,
+) -> RedirectResponse:
+    context = await _managed_context(session, context_id, user)
+    form = parse_qs((await request.body()).decode(), keep_blank_values=True)
+    query = select(Search).where(Search.context_id == context.id)
+    search_id = _form_value(form, "search_id")
+    if search_id:
+        try:
+            query = query.where(Search.id == UUID(search_id))
+        except ValueError as exc:
+            raise HTTPException(422, "Некорректный поиск") from exc
+    searches = list(await session.scalars(query))
+    if not searches:
+        raise HTTPException(404, "В контексте нет доступных поисков")
+    # Conditional update coalesces double clicks without scheduling another run.
+    await session.execute(
+        update(Search)
+        .where(
+            Search.id.in_([s.id for s in searches]),
+            Search.collection_requested_at.is_(None),
+        )
+        .values(collection_requested_at=datetime.now(UTC))
+    )
+    await session.commit()
+    back = _safe_next(request.query_params.get("return_to", f"/?context={context.slug}"))
+    return RedirectResponse(
+        f"/contexts/{context.id}/collection?" + urlencode({"return_to": back}), status_code=303
     )
 
 
