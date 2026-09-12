@@ -56,26 +56,29 @@ cd /d/dev/samara_realty_watch
 
 Канонические серверные параметры и команды лежат в [`docs/OPERATIONS.md`](docs/OPERATIONS.md): SSH host, deploy path, systemd services, noVNC, CDP, проверки и порядок deploy.
 
-Нормальный процесс внесения изменений:
+Обязательный процесс для каждой завершённой правки, включая документацию: проверки,
+коммит только файлов задачи, push, pull той же ветки на сервере и проверка результата.
+Нельзя считать задачу завершённой, если готовые изменения остались только локально.
+Команды и выбор затронутых сервисов: [Normal Deploy](docs/OPERATIONS.md#normal-deploy).
 
 ```bash
 git status --short
 pytest
 ruff check .
 mypy app collectors services
-git add -A
+git add -- <files-for-this-task>
 git commit -m "Short imperative message"
 git push origin <branch>
 ssh bs@192.168.0.246
 cd /home/bs/soft/github/samara_realty_watch
 git pull --ff-only
-sudo docker compose -f compose.lan.yml build web browser-auth
-sudo docker compose -f compose.lan.yml stop scheduler
-sudo docker compose -f compose.lan.yml up -d --wait --force-recreate browser-auth web
-sudo docker compose -f compose.lan.yml --profile collect up -d --force-recreate scheduler
+git rev-parse HEAD
 ```
 
-Не используйте прямое копирование файлов на сервер как основной deploy. `scp` допустим для быстрой диагностики, но после него ту же правку нужно закоммитить и запушить.
+Деплой кода и документации только через Git: без `scp`, `rsync` и ручных правок на
+сервере. После pull проверьте ревизию и релевантные тесты на сервере; при изменении
+сервисов также проверьте их состояние, логи и health endpoint. Для документации
+перезапуск не нужен. Если push, pull или проверка заблокированы, явно сообщите об этом.
 
 LAN использует SQLite и отдельный `compose.lan.yml`. Первичный перенос профиля и проверка
 авторизации обязательны до запуска scheduler; порядок и откат описаны в OPERATIONS.md.

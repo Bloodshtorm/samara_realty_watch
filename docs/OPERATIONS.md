@@ -145,6 +145,22 @@ coordinates remain accessible under `Местоположение: Не подт
 
 ## Normal Deploy
 
+Mandatory for every completed change, including documentation: local checks ->
+commit task-owned files -> push -> server pull of the same branch -> server
+verification. Preserve unrelated in-progress changes; never use blanket staging
+to include another task's work. Code/documentation deployment via scp, rsync or
+direct server edits is not permitted. If any step fails, report the blocker and
+do not claim deployment is complete.
+
+Before pulling, inspect server `git status --short`; do not overwrite local server
+changes. After pulling, compare `git rev-parse HEAD` with the pushed commit.
+For documentation-only changes, run `.venv/bin/python -m pytest
+tests/test_project_context.py -q` on the server; do not migrate, build or restart.
+For runtime changes, run relevant checks and rebuild/restart only affected services,
+then inspect status, logs and `/healthz`. Do not recreate browser-auth for a web-only
+change. The full-stack example below is not a command to run for every change;
+schema changes require the backup and verification procedures in this document.
+
 Use this path after code is committed and pushed. Deploy the current task branch, not a hard-coded branch. On the server, fetch and checkout the same branch that was pushed from the laptop.
 
 ```bash
@@ -254,12 +270,14 @@ git status --short
 pytest
 ruff check .
 mypy app collectors services
-git add -A
+git add -- <files-for-this-task>
 git commit -m "Short imperative message"
 git push origin <branch>
 ```
 
-Then deploy from git on `lan-dev` using the normal deploy section. Avoid direct `scp` deploys except for emergency debugging; if `scp` is used, commit and push the same change promptly.
+Then deploy through Git on `lan-dev` using Normal Deploy, including for documentation.
+Completion reports must include commit/branch, push and server pull results, server
+revision and verification results. State explicitly if a step could not be completed.
 
 ## Collector Commands
 
