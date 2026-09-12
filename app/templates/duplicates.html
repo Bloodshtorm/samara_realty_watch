@@ -15,4 +15,4 @@
 {% if status == 'candidate' %}<form method="post" action="/duplicates/{{ link.id }}?action=reject"><button>Разные квартиры</button></form>{% endif %}</div></article>
 {% else %}<p class="muted">{{ 'Отклонённых совпадений нет.' if status == 'rejected' else 'Спорных совпадений нет.' }}</p>{% endfor %}
 <nav aria-label="Страницы">{% if page > 1 %}<a href="?status={{ status }}&page={{ page - 1 }}{% if group_id %}&group_id={{ group_id }}{% endif %}">Предыдущая</a>{% endif %}<span>Страница {{ page }}</span>{% if pairs|length == 200 %}<a href="?status={{ status }}&page={{ page + 1 }}{% if group_id %}&group_id={{ group_id }}{% endif %}">Следующая</a>{% endif %}</nav>
-</main></body></html>
+</main>{% include '_search_navigation.html' %}</body></html>

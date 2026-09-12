@@ -282,12 +282,12 @@
       </div>
     </section>
 
-    <h2>AI-разбор</h2>
+    <h2 id="ai-review">AI-разбор</h2>
     <section class="panel">
       {% if ai_review %}
         <dl>
-          <dt>Вердикт</dt><dd>{{ ai_review.verdict or "-" }}</dd>
-          <dt>AI score</dt><dd>{{ ai_review.ai_score if ai_review.ai_score is not none else "-" }}/100</dd>
+          <dt>Вердикт</dt><dd>{{ {'watch': 'Стоит посмотреть', 'maybe': 'Нужно уточнить', 'skip': 'Не в приоритете'}.get(ai_review.verdict, 'Нужно уточнить') }}</dd>
+          <dt>Оценка AI</dt><dd>{{ ai_review.ai_score if ai_review.ai_score is not none else "-" }}/100</dd>
           <dt>Модель</dt><dd>{{ ai_review.model_name }}</dd>
           <dt>Дата анализа</dt><dd>{{ ai_review.updated_at|dt }}</dd>
         </dl>
@@ -407,5 +407,6 @@
       </table>
     </div>
   </main>
+{% include '_search_navigation.html' %}
 </body>
 </html>

@@ -175,6 +175,9 @@ async def test_ai_endpoint_uses_current_filters_and_skips_hidden(
                 ai_score=77,
                 verdict="watch",
                 summary="Стоит посмотреть.",
+                pros=[],
+                cons=[],
+                risks=[],
                 updated_at=datetime.now(UTC),
             ),
             True,
@@ -233,6 +236,11 @@ async def test_ai_endpoint_uses_current_filters_and_skips_hidden(
 
     assert response.status_code == 303
     assert selected_response.status_code == 200
+    row_html = selected_response.json()["rows_html"]
+    assert f'data-ai-key="{visible_id}"' in row_html
+    assert "Стоит посмотреть." in row_html
+    assert "Полный AI-разбор" in row_html
+    assert 'data-ai-title="other"' not in row_html
     assert hidden_response.status_code == 303
     assert hidden_selected_response.status_code == 404
     assert captured["calls"] == [["visible", "other"], ["visible"], []]

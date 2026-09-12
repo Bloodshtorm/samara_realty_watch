@@ -27,4 +27,4 @@
 {% for change in histories[item.id] %}<tr><td>{{ change.observed_at|dt }}</td><td>{{ change.old_price_rub|rub }}</td><td>{{ change.new_price_rub|rub }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<p class="muted">Изменений цены нет.</p>{% endif %}</details>{% endfor %}
 <h2>Описания</h2>{% for item in members %}<details><summary>{{ item.source }}</summary><div class="description">{{ item.description or 'Описание отсутствует.' }}</div></details>{% endfor %}
-</main></body></html>
+</main>{% include '_search_navigation.html' %}</body></html>

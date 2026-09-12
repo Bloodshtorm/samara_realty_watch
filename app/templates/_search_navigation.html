@@ -1,0 +1,28 @@
+<script>
+(() => {
+  const here = new URL(window.location.href);
+  const raw = here.pathname === "/"
+    ? here.pathname + here.search
+    : here.searchParams.get("return_to");
+  if (!raw) return;
+  const back = new URL(raw, window.location.origin);
+  if (back.origin !== window.location.origin || back.pathname !== "/") return;
+  document.querySelectorAll('a[href="/"]').forEach((link) => {
+    link.href = back.pathname + back.search;
+  });
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest("a[href]");
+    if (!link) return;
+    const target = new URL(link.href);
+    if (target.origin !== window.location.origin ||
+        !/^\/(listings\/|apartments\/|duplicates|contexts\/new|runs|admin\/users)/.test(target.pathname)) return;
+    const returnTo = window.location.pathname === "/"
+      ? window.location.pathname + window.location.search
+      : back.pathname + back.search;
+    target.searchParams.set("return_to", returnTo);
+    const context = new URL(returnTo, window.location.origin).searchParams.get("context");
+    if (context) target.searchParams.set("context", context);
+    link.href = target.pathname + target.search + target.hash;
+  });
+})();
+</script>

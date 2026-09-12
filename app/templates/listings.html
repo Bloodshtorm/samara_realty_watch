@@ -1002,11 +1002,11 @@
     <section class="dashboard" aria-label="Сводка">
       <div class="stat-card">
         <div class="stat-label">Найдено</div>
-        <div class="stat-value">{{ total }}</div>
+        <div class="stat-value" id="found-count">{{ total }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Показано</div>
-        <div class="stat-value">{{ listings|length }}</div>
+        <div class="stat-value" id="shown-count">{{ listings|length }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Источников</div>
@@ -1111,7 +1111,7 @@
         </label>
         <div class="actions">
           <button type="submit">Фильтровать</button>
-          <a class="button secondary" href="/">Сбросить</a>
+          <a class="button secondary" href="/?context={{ selected_context.slug }}" data-reset-filters>Сбросить фильтры</a>
         </div>
       </form>
     </details>
@@ -1139,6 +1139,8 @@
       <form method="post" action="/ai/recommendations/run?{{ request.url.query }}" class="summary" id="ai-review-form">
         <input type="hidden" name="selected_listing_ids" id="ai-selected-listing-ids" value="">
         <button type="submit" id="ai-review-button">Проанализировать видимые варианты</button>
+        <button type="button" class="button secondary" id="ai-show-progress" hidden>Ход анализа</button>
+        <span id="ai-inline-status" role="status"></span>
       </form>
       {% endif %}
       <nav class="views" aria-label="Разделы">
@@ -1243,14 +1245,14 @@
         <header class="ai-progress-header">
           <div>
             <h2 id="ai-progress-title">AI-анализ квартир</h2>
-            <p class="ai-progress-summary" id="ai-progress-summary">Подготовка списка...</p>
+            <p class="ai-progress-summary" id="ai-progress-summary" role="status">Подготовка списка...</p>
           </div>
           <button class="modal-close" type="button" data-ai-modal-close aria-label="Закрыть">×</button>
         </header>
         <ul class="ai-progress-list" id="ai-progress-list"></ul>
         <div class="ai-progress-actions">
           <button class="button secondary" type="button" data-ai-modal-close>Закрыть</button>
-          <button class="button" type="button" id="ai-refresh-button" hidden>Обновить список</button>
+          <button class="button" type="button" id="ai-refresh-button" hidden>Показать результаты</button>
         </div>
       </article>
     </div>
@@ -1310,9 +1312,16 @@
     const aiRefreshButton = document.getElementById("ai-refresh-button");
     const cardModal = document.getElementById("listing-card-modal");
     const cardContent = document.getElementById("listing-card-content");
-    const initialRowsHtml = listingsBody.innerHTML;
+    let initialRowsHtml = listingsBody.innerHTML;
     const initialSummaryHtml = resultSummary.innerHTML;
     let selectedListingIds = null;
+    let spatialPayload = null;
+    let spatialRequest = 0;
+    let spatialLoading = false;
+    let aiRunning = false;
+    let selectionOutline = null;
+    const aiShowProgress = document.getElementById("ai-show-progress");
+    const aiInlineStatus = document.getElementById("ai-inline-status");
     let focusRing = null;
     let freeDraw = null;
 
@@ -1363,7 +1372,7 @@
 
     const attachMapFocusButtons = () => {
       document.querySelectorAll("[data-map-listing]").forEach((button) => {
-        button.addEventListener("click", () => focusListingOnMap(button.dataset.mapListing));
+        button.onclick = () => focusListingOnMap(button.dataset.mapListing);
       });
     };
 
@@ -1389,7 +1398,7 @@
 
     const attachCardButtons = () => {
       document.querySelectorAll("[data-card-listing]").forEach((button) => {
-        button.addEventListener("click", () => openListingCard(button.dataset.cardListing));
+        button.onclick = () => openListingCard(button.dataset.cardListing);
       });
     };
 
@@ -1403,14 +1412,14 @@
       aiProgressModal?.classList.add("open");
       aiProgressModal?.setAttribute("aria-hidden", "false");
       document.body.style.overflow = "hidden";
+      aiProgressModal?.querySelector("[data-ai-modal-close]")?.focus();
     };
 
     const selectedAiRows = () => {
       const rows = Array.from(document.querySelectorAll("[data-ai-key]"));
       const rowByKey = new Map(rows.map((row) => [row.dataset.aiKey, row]));
-      const selectedKeys = aiSelectedListingIds?.value
-        ? aiSelectedListingIds.value.split(",").filter(Boolean)
-        : rows.map((row) => row.dataset.aiKey).filter(Boolean).slice(0, {{ ai_limit }});
+      const selectedKeys = rows.map((row) => row.dataset.aiKey).filter(Boolean)
+        .slice(0, {{ ai_limit }});
       return selectedKeys.map((key) => {
         const row = rowByKey.get(key);
         return {
@@ -1419,6 +1428,26 @@
           price: row?.dataset.aiPrice || ""
         };
       });
+    };
+
+    const updateAiButton = () => {
+      if (!aiReviewButton) return;
+      const count = selectedAiRows().length;
+      aiReviewButton.textContent = `Проанализировать варианты (${count})`;
+      aiReviewButton.disabled = aiRunning || spatialLoading || count === 0;
+    };
+
+    const replaceAiRow = (key, html) => {
+      const parsed = new DOMParser().parseFromString(`<table><tbody>${html}</tbody></table>`, "text/html");
+      const row = parsed.querySelector("[data-ai-key]");
+      if (!row) return;
+      listingsBody.querySelector(`[data-ai-key="${CSS.escape(key)}"]`)?.replaceWith(row);
+      const initial = new DOMParser().parseFromString(`<table><tbody>${initialRowsHtml}</tbody></table>`, "text/html");
+      initial.querySelector(`[data-ai-key="${CSS.escape(key)}"]`)?.replaceWith(row.cloneNode(true));
+      initialRowsHtml = initial.querySelector("tbody").innerHTML;
+      attachMapFocusButtons();
+      attachCardButtons();
+      markSelectedRows();
     };
 
     const setAiItemStatus = (itemNode, status, detail, className) => {
@@ -1449,12 +1478,15 @@
 
     const runAiProgress = async (event) => {
       event.preventDefault();
+      if (aiRunning) return;
       const items = selectedAiRows();
       if (!items.length) {
         selectionSummary.textContent = "Нет квартир для AI-анализа";
         return;
       }
       renderAiProgressItems(items);
+      aiRunning = true;
+      aiShowProgress.hidden = false;
       aiProgressSummary.textContent = `Выбрано: ${items.length}. Анализ пойдёт по очереди.`;
       aiRefreshButton.hidden = true;
       openAiProgress();
@@ -1465,7 +1497,10 @@
       let failed = 0;
       for (const item of items) {
         const itemNode = aiProgressList.querySelector(`[data-ai-progress-key="${CSS.escape(item.key)}"]`);
-        setAiItemStatus(itemNode, "Анализ", "Отправлено в Ollama, ждём ответ...", "running");
+        const started = Date.now();
+        const showElapsed = () => setAiItemStatus(itemNode, "Анализ", `Анализируем квартиру · ${Math.floor((Date.now() - started) / 1000)} с`, "running");
+        showElapsed();
+        const timer = window.setInterval(showElapsed, 1000);
         try {
           const response = await fetch(`/api/ai/recommendations/review${window.location.search}`, {
             method: "POST",
@@ -1476,30 +1511,37 @@
             throw new Error(`HTTP ${response.status}`);
           }
           const result = await response.json();
+          window.clearInterval(timer);
+          replaceAiRow(item.key, result.rows_html);
           done += 1;
-          const cached = result.status === "reused" ? "из кеша" : "сохранено";
+          const cached = result.status === "reused" ? "сохранённый разбор" : "сохранено";
           const score = result.ai_score === null || result.ai_score === undefined
             ? ""
             : ` · ${result.ai_score}/100`;
           setAiItemStatus(
             itemNode,
             "Готово",
-            `${result.verdict || "maybe"}${score} · ${cached}`,
+            `${({watch: "Стоит посмотреть", maybe: "Нужно уточнить", skip: "Не в приоритете"})[result.verdict] || "Нужно уточнить"}${score} · ${cached}`,
             "done"
           );
         } catch (error) {
+          window.clearInterval(timer);
           failed += 1;
           setAiItemStatus(itemNode, "Ошибка", "Не удалось получить AI-разбор", "error");
         }
         aiProgressSummary.textContent = `Готово: ${done} из ${items.length}. Ошибок: ${failed}.`;
+        aiInlineStatus.textContent = aiProgressSummary.textContent;
       }
       if (aiReviewButton) {
         aiReviewButton.disabled = false;
       }
       aiRefreshButton.hidden = false;
+      aiRunning = false;
+      updateAiButton();
       aiProgressSummary.textContent = failed
         ? `Завершено: ${done} из ${items.length}, ошибок: ${failed}.`
         : `Завершено: ${done} из ${items.length}.`;
+      aiInlineStatus.textContent = aiProgressSummary.textContent;
     };
 
     const focusListingOnMap = (listingId) => {
@@ -1588,14 +1630,55 @@
         ? `В области: ${data.total}, показаны первые ${data.limit}`
         : `В области: ${data.total}, показано ${data.shown}`;
       selectionSummary.textContent = `${label}: ${data.total}`;
+      document.getElementById("found-count").textContent = data.total;
+      document.getElementById("shown-count").textContent = data.shown;
       resetAreaButton.disabled = false;
       attachMapFocusButtons();
       attachCardButtons();
       markSelectedRows();
       scheduleRenderMarkers();
+      updateAiButton();
+    };
+
+    const persistSpatialFilter = () => {
+      const url = new URL(window.location.href);
+      if (spatialPayload) url.searchParams.set("map_area", JSON.stringify(spatialPayload));
+      else url.searchParams.delete("map_area");
+      history.replaceState(null, "", url);
+      document.querySelectorAll('a[href^="?"], a[href^="/?"]').forEach((link) => {
+        if (link.hasAttribute("data-reset-filters")) return;
+        const target = new URL(link.href);
+        if (spatialPayload && target.searchParams.get("context") === "{{ selected_context.slug }}") {
+          target.searchParams.set("map_area", JSON.stringify(spatialPayload));
+        } else target.searchParams.delete("map_area");
+        link.href = target.pathname + target.search;
+      });
+      const form = document.querySelector("form.filters");
+      let input = form.querySelector('[name="map_area"]');
+      if (!input) {
+        input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "map_area";
+        form.appendChild(input);
+      }
+      input.value = spatialPayload ? JSON.stringify(spatialPayload) : "";
+    };
+
+    const drawSelectionOutline = () => {
+      if (selectionOutline) map.removeLayer(selectionOutline);
+      selectionOutline = null;
+      if (!spatialPayload) return;
+      const p = spatialPayload;
+      selectionOutline = (p.mode === "polygon"
+        ? L.polygon(p.polygon)
+        : L.rectangle([[p.south, p.west], [p.north, p.east]]))
+        .setStyle({color: "#0f766e", weight: 2, fillOpacity: 0.06, interactive: false}).addTo(map);
     };
 
     const applySpatialFilter = async (payload, label) => {
+      const requestId = ++spatialRequest;
+      spatialLoading = true;
+      updateAiButton();
       filterBoundsButton.disabled = true;
       drawAreaButton.disabled = true;
       selectionSummary.textContent = "Обновляю список...";
@@ -1608,12 +1691,22 @@
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        setSpatialResult(await response.json(), label);
+        const data = await response.json();
+        if (requestId !== spatialRequest) return;
+        spatialPayload = payload;
+        persistSpatialFilter();
+        drawSelectionOutline();
+        setSpatialResult(data, label);
       } catch (error) {
+        if (requestId !== spatialRequest) return;
         selectionSummary.textContent = "Не удалось применить область";
       } finally {
-        filterBoundsButton.disabled = false;
-        drawAreaButton.disabled = false;
+        if (requestId === spatialRequest) {
+          spatialLoading = false;
+          updateAiButton();
+          filterBoundsButton.disabled = false;
+          drawAreaButton.disabled = !freeDraw;
+        }
       }
     };
 
@@ -1629,10 +1722,19 @@
     };
 
     const resetSpatialFilter = () => {
+      spatialRequest += 1;
+      spatialLoading = false;
+      spatialPayload = null;
+      persistSpatialFilter();
+      drawSelectionOutline();
+      filterBoundsButton.disabled = false;
+      drawAreaButton.disabled = !freeDraw;
       listingsBody.innerHTML = initialRowsHtml;
       resultSummary.innerHTML = initialSummaryHtml;
       selectionSummary.textContent = "";
       selectedListingIds = null;
+      document.getElementById("found-count").textContent = "{{ total }}";
+      document.getElementById("shown-count").textContent = "{{ listings|length }}";
       if (aiSelectedListingIds) {
         aiSelectedListingIds.value = "";
       }
@@ -1645,6 +1747,7 @@
       attachMapFocusButtons();
       attachCardButtons();
       scheduleRenderMarkers();
+      updateAiButton();
     };
 
     const setupFreeDraw = () => {
@@ -1710,13 +1813,28 @@
     setupFreeDraw();
     attachMapFocusButtons();
     attachCardButtons();
+    updateAiButton();
+    const savedArea = new URL(window.location.href).searchParams.get("map_area");
+    if (savedArea) {
+      try {
+        spatialPayload = JSON.parse(savedArea);
+        drawSelectionOutline();
+        map.fitBounds(selectionOutline.getBounds(), {padding: [16, 16]});
+        void applySpatialFilter(spatialPayload, "В области");
+      } catch {
+        spatialPayload = null;
+        persistSpatialFilter();
+        selectionSummary.textContent = "Не удалось восстановить область. Выберите её заново.";
+      }
+    }
     aiReviewForm?.addEventListener("submit", runAiProgress);
     aiProgressModal?.addEventListener("click", (event) => {
       if (event.target === aiProgressModal || event.target.closest("[data-ai-modal-close]")) {
         closeAiProgress();
       }
     });
-    aiRefreshButton?.addEventListener("click", () => window.location.reload());
+    aiRefreshButton?.addEventListener("click", closeAiProgress);
+    aiShowProgress?.addEventListener("click", openAiProgress);
     cardModal.addEventListener("click", (event) => {
       if (event.target === cardModal || event.target.closest("[data-modal-close]")) {
         closeListingCard();
@@ -1736,5 +1854,6 @@
     setTimeout(refreshMapSize, 250);
     })();
   </script>
+  {% include '_search_navigation.html' %}
 </body>
 </html>

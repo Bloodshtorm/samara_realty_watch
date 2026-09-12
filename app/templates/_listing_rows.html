@@ -54,8 +54,9 @@
         </ul>
       {% endif %}
       {% if ai_review %}
-        <div class="muted">AI: {{ ai_review.verdict or "maybe" }}{% if ai_review.ai_score is not none %} · {{ ai_review.ai_score }}/100{% endif %}</div>
+        <div class="muted">AI: {{ {'watch': 'Стоит посмотреть', 'maybe': 'Нужно уточнить', 'skip': 'Не в приоритете'}.get(ai_review.verdict, 'Нужно уточнить') }}{% if ai_review.ai_score is not none %} · {{ ai_review.ai_score }}/100{% endif %}</div>
         {% if ai_review.summary %}<div>{{ ai_review.summary }}</div>{% endif %}
+        <a href="/listings/{{ item.id }}#ai-review">Полный AI-разбор</a>
       {% endif %}
     </td>
     <td class="num stats-col" data-label="Статистика">
@@ -154,7 +155,7 @@
           </section>
           {% if ai_review %}
           <section class="listing-card-stats" aria-label="AI-рекомендация">
-            <div>AI: {{ ai_review.verdict or "maybe" }} · {{ ai_review.model_name }}</div>
+            <div>AI: {{ {'watch': 'Стоит посмотреть', 'maybe': 'Нужно уточнить', 'skip': 'Не в приоритете'}.get(ai_review.verdict, 'Нужно уточнить') }} · {{ ai_review.model_name }}</div>
             <div>{{ ai_review.summary }}</div>
           </section>
           {% endif %}

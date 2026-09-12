@@ -820,6 +820,7 @@ async def ai_recommendations_run(
 
 @app.post("/api/ai/recommendations/review")
 async def ai_recommendation_review(
+    request: Request,
     payload: AIReviewPayload,
     filters: ListingFilters = FILTERS_DEP,
     session: AsyncSession = SESSION_DEP,
@@ -863,8 +864,15 @@ async def ai_recommendation_review(
         force=payload.force,
     )
     await session.commit()
+    row_context = await _table_rows_context(
+        session, candidates, visible_filters, selected_context, user
+    )
+    row_context["ai_reviews"][candidates[0].id] = review
     return {
         "status": "created" if created else "reused",
+        "rows_html": templates.get_template("_listing_rows.html").render(
+            request=request, filters=visible_filters, current_user=user, **row_context
+        ),
         "listing_id": str(review.listing_id),
         "model_name": review.model_name,
         "ai_score": review.ai_score,
