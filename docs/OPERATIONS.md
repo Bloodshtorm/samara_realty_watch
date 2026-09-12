@@ -2,6 +2,11 @@
 
 Этот файл является единственным источником правды для операций с сервером, deploy-путей и команд. Если в README, AGENTS.md или skill есть расхождения, сначала обновляйте этот файл.
 
+Component routing, diagrams and dated evidence are in [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
+Known installation blocker: revisions 0001-0003 contain PostgreSQL-specific SQL/types;
+the documented migration commands are not proof that fresh SQLite bootstrap works.
+Do not run them against an unknown database or stamp past this failure without schema verification.
+
 ## Inventory
 
 - Local workspace: `D:\dev\samara_realty_watch`

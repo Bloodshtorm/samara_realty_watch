@@ -7,7 +7,8 @@
 ## Что внутри
 
 - Python 3.12, Typer CLI, FastAPI web UI, Playwright persistent context.
-- PostgreSQL 16, SQLAlchemy 2.x async, Alembic.
+- Рабочий LAN: SQLite и `compose.lan.yml`; SQLAlchemy 2.x async, Alembic.
+- PostgreSQL 16 сохранён в отдельном старом `docker-compose.yml`, не используется LAN-стеком.
 - YAML-конфигурация поисков и scoring.
 - JSON-логи через structlog.
 - Web UI с фильтрами по цене, площади, этажу, району, источнику и изменениям цены.
@@ -15,7 +16,19 @@
 - Без обхода CAPTCHA, антибот-защит, fingerprint/rate-limit обхода, прокси-ротации.
 - Metabase в отдельном compose profile `analytics`.
 
-## Быстрый старт
+## Контекст проекта
+
+[Карта проекта и архитектура](docs/PROJECT_CONTEXT.md) описывает, где искать сборщики,
+фильтры, карту, авторизацию и ограничения источников. Серверные команды находятся
+только в [OPERATIONS.md](docs/OPERATIONS.md).
+
+Не используйте `make up` или обычный `docker compose up` для LAN: они выбирают старую
+конфигурацию PostgreSQL. Ранние миграции ещё не поддерживают чистую установку SQLite;
+работа существующей базы не доказывает, что установка с нуля исправна.
+
+## Старый локальный запуск (PostgreSQL)
+
+Следующие `make`-команды относятся к старому стеку, а не к текущему серверу.
 
 ```bash
 make init
@@ -101,6 +114,10 @@ searches:
 Для Домклика, Циан и Авито можно оставить `enabled: false`, пока не сохранены реальные HTML fixtures для точной настройки селекторов.
 
 ## Авторизация в браузере
+
+Раздел с `make` ниже относится к старому локальному стеку. На LAN используется уже
+открытый Chrome через CDP; не останавливайте browser-auth после ручной авторизации.
+Актуальная процедура находится в [OPERATIONS.md](docs/OPERATIONS.md).
 
 ```bash
 make browser-init

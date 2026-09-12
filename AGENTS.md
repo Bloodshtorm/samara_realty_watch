@@ -1,11 +1,29 @@
 # Repository Guidelines
 
+## Start Here
+
+- Read [project context](docs/PROJECT_CONTEXT.md) for component ownership, data flows,
+  environment boundaries and known contradictions before choosing commands.
+- Read [operations](docs/OPERATIONS.md) for any live action. It is the only authority
+  for server addresses, paths and deployment commands. Context initialization alone
+  does not authorize deployment, migrations, branch changes or pushing.
+- The current LAN stack is `compose.lan.yml` with SQLite. `docker-compose.yml` and
+  unqualified Makefile targets are a separate legacy PostgreSQL workflow, not LAN.
+- Keep existing user changes. Give a short plan before edits, prefer minimal diffs,
+  and ask before large refactors or new dependencies.
+- Known blocker: early Alembic revisions are PostgreSQL-specific; a fresh SQLite
+  `alembic upgrade head` fails. Do not stamp an unverified database to hide this.
+- Offline context checks: `python -m pytest tests/test_project_context.py -q`.
+  Use the repository's real venv interpreter, not a Windows Store Python shim.
+
 ## Project Structure & Module Organization
 
 This repository is a Python 3.12 personal realty monitoring service for Samara apartment listings.
 
 - `app/` contains CLI entrypoints, FastAPI web UI, Jinja templates, settings, logging, DB setup, SQLAlchemy models, and the collection runner.
-- `collectors/` contains source adapters. Active collectors include `yandex_realty`, `mirkvartir`, `n1`, and `etagi`; `domclick`, `cian`, and `avito` require browser profile/noVNC validation before enabling.
+- `collectors/` contains source adapters. Enabled searches are selected by runtime config;
+  do not infer live source health from the adapter list. Browser-sensitive sources
+  require the profile/noVNC validation workflow before enabling.
 - `services/` contains domain logic: ingestion, normalization, scoring, analytics, mortgage math, deduplication, stats, reporting, and debug artifacts.
 - `migrations/` contains Alembic migrations.
 - `tests/` contains unit tests and `tests/fixtures/` contains saved HTML fixtures.
@@ -15,7 +33,7 @@ This repository is a Python 3.12 personal realty monitoring service for Samara a
 ## Build, Test, and Development Commands
 
 - `make init` creates local `.env`, YAML configs, and data directories.
-- `make up` starts PostgreSQL.
+- `make up` starts legacy PostgreSQL; it is not the LAN startup command.
 - `make migrate` applies Alembic migrations.
 - `make browser-init` opens persistent Chromium for manual login.
 - `make collect` runs one collection cycle.
@@ -48,7 +66,7 @@ Tests use `pytest` and `pytest-asyncio`. Name tests as `tests/test_*.py`. Do not
 
 ## Commit & Pull Request Guidelines
 
-No established git history is available yet, so use concise imperative commit messages, for example `Add yandex fixture parser` or `Fix price history upsert`.
+Use concise imperative commit messages, for example `Add yandex fixture parser` or `Fix price history upsert`. Inspect the actual branch and history before committing.
 
 Pull requests should include a short summary, test results, affected commands, and any config or migration notes. Include screenshots or saved debug HTML only when needed, and never include `.env`, cookies, browser profiles, or seller phone data.
 
