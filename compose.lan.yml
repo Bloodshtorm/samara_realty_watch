@@ -24,8 +24,6 @@ x-app: &app
     OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen3:14b}"
     AI_RECOMMENDATION_LIMIT: "${AI_RECOMMENDATION_LIMIT:-10}"
     AI_PROMPT_VERSION: "${AI_PROMPT_VERSION:-listing-ai-v1}"
-  extra_hosts:
-    - "host.docker.internal:host-gateway"
   volumes:
     - ./data:/app/data
     - ./config:/app/config:ro
