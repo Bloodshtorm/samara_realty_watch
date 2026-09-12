@@ -375,3 +375,80 @@ async def test_user_creates_personal_context_with_disabled_searches(factory, ove
         searches = (await session.scalars(select(Search))).all()
         assert {search.source for search in searches} == {"cian", "domclick"}
         assert not any(search.enabled for search in searches)
+
+
+async def test_direct_merge_preview_confirmation_and_stale_state(factory, override_db):
+    from app.models import ApartmentGroup, ListingLink, PriceHistory
+    from services.apartments import set_link
+
+    async with factory() as session, session.begin():
+        admin = User(
+            username="merge-admin",
+            display_name="Admin",
+            role="admin",
+            password_hash=hash_password("secret"),
+        )
+        reader = User(
+            username="merge-reader",
+            display_name="Reader",
+            role="user",
+            password_hash=hash_password("secret"),
+        )
+        groups = [ApartmentGroup(), ApartmentGroup()]
+        session.add_all([admin, reader, *groups])
+        await session.flush()
+        _, token = await create_user_session(session, admin, days=1)
+        _, reader_token = await create_user_session(session, reader, days=1)
+        items = [
+            Listing(
+                source=source,
+                source_listing_id=str(index),
+                group_id=groups[index].id,
+                url="https://example.test",
+                canonical_url="https://example.test",
+                property_type="flat",
+                rooms=3,
+                floor=5,
+                floors_total=9,
+                address_raw="Самара, Липяговская, 9",
+                area_total_m2=66 + index / 10,
+                price_rub=3500000,
+            )
+            for index, source in enumerate(("cian", "etagi"))
+        ]
+        session.add_all(items)
+        await session.flush()
+        session.add(
+            PriceHistory(listing_id=items[0].id, old_price_rub=3600000, new_price_rub=3500000)
+        )
+        await set_link(session, *items, "rejected", "manual")
+        payload = {"left": str(groups[0].id), "right": str(groups[1].id)}
+        item_ids = [item.id for item in items]
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        client.cookies.set(SESSION_COOKIE_NAME, reader_token)
+        assert (await client.post("/api/apartments/merge-preview", json=payload)).status_code == 403
+        client.cookies.set(SESSION_COOKIE_NAME, token)
+        preview = await client.post("/api/apartments/merge-preview", json=payload)
+        assert preview.status_code == 200
+        assert preview.json()["warnings"]
+        payload["fingerprint"] = preview.json()["fingerprint"]
+        assert (await client.post("/api/apartments/merge", json=payload)).status_code == 403
+        client.headers["origin"] = "http://test"
+        assert (await client.post("/api/apartments/merge", json=payload)).status_code == 409
+        payload["acknowledge"] = True
+        saved = payload["fingerprint"]
+        payload["fingerprint"] = "stale"
+        assert (await client.post("/api/apartments/merge", json=payload)).status_code == 409
+        payload["fingerprint"] = saved
+        result = await client.post("/api/apartments/merge", json=payload)
+        assert result.status_code == 200
+        assert (await client.post("/api/apartments/merge", json=payload)).status_code == 409
+    async with factory() as session:
+        rows = (await session.scalars(select(Listing).where(Listing.id.in_(item_ids)))).all()
+        assert len(rows) == 2
+        assert rows[0].group_id == rows[1].group_id
+        assert len((await session.scalars(select(PriceHistory))).all()) == 1
+        link = (await session.scalars(select(ListingLink))).one()
+        assert link.status == "confirmed" and link.decision_origin == "manual"

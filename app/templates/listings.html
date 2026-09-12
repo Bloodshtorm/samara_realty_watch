@@ -1150,6 +1150,7 @@
       </table>
     </div>
   </main>
+  {% if current_user.role == 'admin' %}{% include '_merge_selection.html' %}{% endif %}
   <div class="modal-backdrop" id="listing-card-modal" aria-hidden="true">
     <div class="modal-dialog" role="dialog" aria-modal="true" aria-label="Карточка объявления">
       <div id="listing-card-content"></div>

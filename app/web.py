@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import itertools
 import json
 import re
 import time
@@ -17,7 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from pydantic import BaseModel, Field
-from sqlalchemy import Select, and_, exists, func, or_, select, true
+from sqlalchemy import Select, and_, exists, func, or_, select, true, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased, defer
@@ -49,7 +51,7 @@ from services.analytics import (
     recommend_listing,
     segment_key,
 )
-from services.apartments import confirm_link, group_members, split_member
+from services.apartments import confirm_link, group_members, set_link, split_member
 from services.auth import (
     SESSION_COOKIE_NAME,
     bootstrap_admin,
@@ -59,6 +61,7 @@ from services.auth import (
     verify_password,
 )
 from services.avito_policy import AvitoPolicy
+from services.deduplication import building_key
 from services.geography import in_context, usable_coordinates
 from services.search_contexts import sync_contexts_from_config
 
@@ -627,6 +630,7 @@ async def spatial_listings(
     rows_html = templates.get_template("_listing_rows.html").render(
         request=request,
         filters=filters,
+        current_user=user,
         **row_context,
     )
     return {
@@ -1568,6 +1572,124 @@ def _local_return(request: Request) -> str:
     if referer.netloc and referer.netloc != request.url.netloc:
         return "/"
     return (referer.path or "/") + (f"?{referer.query}" if referer.query else "")
+
+
+class MergeSelection(BaseModel):
+    left: UUID
+    right: UUID
+    fingerprint: str | None = None
+    acknowledge: bool = False
+
+
+async def _merge_preview(session: AsyncSession, left: UUID, right: UUID) -> dict:
+    if left == right:
+        raise HTTPException(409, "Выбрана одна и та же квартира")
+    groups = []
+    members = []
+    for ident in (left, right):
+        group = await session.get(ApartmentGroup, ident)
+        items = await group_members(session, ident)
+        if not group or not items:
+            raise HTTPException(
+                409, "Состав квартиры изменился. Обновите список и выберите её заново."
+            )
+        members.append(items)
+        groups.append(
+            {
+                "id": str(ident),
+                "needs_review": group.needs_review,
+                "items": [
+                    {
+                        "id": str(item.id),
+                        "source": item.source,
+                        "address": item.address_normalized
+                        or item.address_raw
+                        or "Адрес неизвестен",
+                        "rooms": item.rooms,
+                        "area": str(item.area_total_m2 or "—"),
+                        "floor": item.floor,
+                        "floors": item.floors_total,
+                        "price": item.price_rub,
+                    }
+                    for item in items
+                ],
+            }
+        )
+    warnings = set()
+    for a, b in itertools.product(*members):
+        for field, label in (
+            ("rooms", "Комнатность"),
+            ("floor", "Этаж"),
+            ("floors_total", "Этажность дома"),
+        ):
+            if (
+                getattr(a, field) is not None
+                and getattr(b, field) is not None
+                and getattr(a, field) != getattr(b, field)
+            ):
+                warnings.add(f"{label} не совпадает")
+        ka, kb = building_key(a), building_key(b)
+        if not ka or not kb:
+            warnings.add("Не удалось подтвердить адрес дома")
+        elif ka != kb:
+            warnings.add("Адреса домов не совпадают")
+        if a.source == b.source:
+            warnings.add("В группе будут несколько объявлений одного источника")
+    ids = [item.id for items in members for item in items]
+    rejected = (
+        await session.scalars(
+            select(ListingLink).where(
+                ListingLink.listing_id_a.in_(ids),
+                ListingLink.listing_id_b.in_(ids),
+                ListingLink.match_type == "apartment",
+                ListingLink.status == "rejected",
+            )
+        )
+    ).all()
+    if rejected:
+        warnings.add("Эти объявления ранее разделяли или отклоняли их объединение")
+    if any(group["needs_review"] for group in groups):
+        warnings.add("Группа уже отмечена для проверки")
+    result = {"groups": groups, "warnings": sorted(warnings)}
+    result["fingerprint"] = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
+    return result
+
+
+@app.post("/api/apartments/merge-preview")
+async def apartment_merge_preview(
+    payload: MergeSelection,
+    session: AsyncSession = SESSION_DEP,
+    _admin: User = ADMIN_DEP,
+) -> dict:
+    return await _merge_preview(session, payload.left, payload.right)
+
+
+@app.post("/api/apartments/merge")
+async def apartment_merge(
+    request: Request,
+    payload: MergeSelection,
+    session: AsyncSession = SESSION_DEP,
+    _admin: User = ADMIN_DEP,
+) -> dict:
+    if request.headers.get("origin") != str(request.base_url).rstrip("/"):
+        raise HTTPException(403, "Same-origin request required")
+    # Serialize membership changes before rechecking the preview (also on SQLite).
+    await session.execute(
+        update(ApartmentGroup)
+        .where(ApartmentGroup.id.in_([payload.left, payload.right]))
+        .values(needs_review=ApartmentGroup.needs_review)
+    )
+    preview = await _merge_preview(session, payload.left, payload.right)
+    if payload.fingerprint != preview["fingerprint"]:
+        raise HTTPException(409, "Данные изменились. Сравните карточки ещё раз.")
+    if preview["warnings"] and not payload.acknowledge:
+        raise HTTPException(409, "Подтвердите предупреждения перед объединением")
+    a = (await group_members(session, payload.left))[0]
+    b = (await group_members(session, payload.right))[0]
+    link = await set_link(session, a, b, "confirmed", "manual")
+    group_id = await confirm_link(session, link)
+    await session.commit()
+    return {"group_id": str(group_id), "url": f"/apartments/{group_id}"}
 
 
 @app.get("/apartments/{group_id}", response_class=HTMLResponse)

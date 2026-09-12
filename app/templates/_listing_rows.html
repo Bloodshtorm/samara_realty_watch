@@ -82,6 +82,11 @@
             aria-label="Нет координат"
           {% endif %}
         >⌖</button>
+        {% if item.group_id and current_user is defined and current_user.role == 'admin' %}
+        <button class="icon-button" type="button" data-merge-group="{{ item.group_id }}"
+          data-merge-label="{{ display_address or display_title }}" title="Объединить с другой карточкой"
+          aria-label="Объединить с другой карточкой">⇄</button>
+        {% endif %}
         <form method="post" action="/listings/{{ item.id }}/state?action={{ 'unfavorite' if user_state and user_state.is_favorite else 'favorite' }}">
           <button
             class="icon-button{% if user_state and user_state.is_favorite %} active{% endif %}"

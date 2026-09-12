@@ -1,0 +1,138 @@
+<style>
+  #merge-bar { position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 1100;
+    background: #fff; border: 2px solid #0f766e; border-radius: 6px; padding: 12px;
+    display: flex; gap: 12px; align-items: center; box-shadow: 0 3px 16px #0002; }
+  #merge-bar[hidden] { display: none; }
+  #merge-bar span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  body.merge-selecting { padding-bottom: 130px; }
+  [data-merge-group].merge-chosen { background: #d6eee8; outline: 2px solid #0f766e; }
+  #merge-dialog { width: min(860px, calc(100% - 24px)); max-height: calc(100dvh - 24px);
+    border: 1px solid #d9dee7; border-radius: 8px; padding: 20px; overflow: auto; color: #19202a; }
+  #merge-dialog::backdrop { background: #0007; }
+  #merge-dialog h2 { font-size: 21px; margin: 0 0 14px; }
+  #merge-comparison { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; }
+  #merge-comparison section { min-width: 0; overflow-wrap: anywhere; }
+  #merge-comparison p { margin: 6px 0; }
+  #merge-comparison article { border-bottom: 1px solid #d9dee7; padding: 10px 0; }
+  #merge-warnings, #merge-error { color: #a13220; overflow-wrap: anywhere; }
+  #merge-dialog footer { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  #merge-dialog button { white-space: normal; min-height: 40px; }
+  #merge-ack-label { display: flex; gap: 8px; align-items: start; }
+  #merge-ack-label[hidden] { display: none; }
+  #merge-ack { width: 20px; height: 20px; flex-shrink: 0; }
+  @media(max-width: 600px) {
+    #merge-dialog { width: 100%; height: 100dvh; max-height: 100dvh; max-width: 100%; margin: 0; border-radius: 0; padding: 16px; }
+    #merge-comparison { grid-template-columns: minmax(0,1fr); gap: 12px; }
+  }
+</style>
+<aside id="merge-bar" hidden aria-live="polite">
+  <span id="merge-selected-label"></span>
+  <button type="button" class="button secondary" id="merge-cancel">Отмена</button>
+</aside>
+<dialog id="merge-dialog" aria-labelledby="merge-title">
+  <h2 id="merge-title">Объединить квартиры</h2>
+  <p>Объединение изменит общую группировку для всех пользователей. Объявления и история цен сохранятся.</p>
+  <div id="merge-comparison"></div>
+  <ul id="merge-warnings"></ul>
+  <label id="merge-ack-label" hidden><input type="checkbox" id="merge-ack">Подтверждаю: несмотря на различия и прежние решения, это одна квартира.</label>
+  <p id="merge-error" role="alert"></p>
+  <footer>
+    <button type="button" class="button" id="merge-confirm" disabled>Подтвердить объединение</button>
+    <button type="button" class="button secondary" id="merge-close">Назад к выбору</button>
+  </footer>
+</dialog>
+<script>
+(() => {
+  const storageKey = 'srw-merge-selection-{{ current_user.id }}';
+  const bar = document.getElementById('merge-bar');
+  const dialog = document.getElementById('merge-dialog');
+  const confirm = document.getElementById('merge-confirm');
+  const ack = document.getElementById('merge-ack');
+  const error = document.getElementById('merge-error');
+  let selected = null, preview = null, second = null, busy = false, generation = 0;
+  let trigger = null;
+  try {
+    if (performance.getEntriesByType('navigation')[0]?.type === 'reload') sessionStorage.removeItem(storageKey);
+    const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+    if (saved && typeof saved.id === 'string' && typeof saved.label === 'string') selected = saved;
+  } catch (_) { /* Storage can be unavailable in private browsing. */ }
+  function render() {
+    bar.hidden = !selected;
+    document.body.classList.toggle('merge-selecting', Boolean(selected));
+    document.getElementById('merge-selected-label').textContent = selected ?
+      `Выбрана квартира: ${selected.label}. Выберите вторую карточку.` : '';
+    document.querySelectorAll('[data-merge-group]').forEach(button => {
+      const same = selected?.id === button.dataset.mergeGroup;
+      button.classList.toggle('merge-chosen', same);
+      const label = same ? 'Первая квартира выбрана' : selected ? 'Объединить с выбранной' : 'Объединить с другой карточкой';
+      button.title = label;
+      button.setAttribute('aria-label', label);
+      button.setAttribute('aria-pressed', String(Boolean(same)));
+    });
+    try {
+      if (selected) sessionStorage.setItem(storageKey, JSON.stringify(selected));
+      else sessionStorage.removeItem(storageKey);
+    } catch (_) { /* Selection still works without persistent storage. */ }
+  }
+  function enableConfirm() { confirm.disabled = busy || !preview || (preview.warnings.length > 0 && !ack.checked); }
+  async function request(path, payload) {
+    const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    if (response.redirected) throw new Error('Сессия истекла. Войдите снова.');
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось выполнить запрос');
+    return data;
+  }
+  function showComparison(data) {
+    const container = document.getElementById('merge-comparison');
+    container.replaceChildren();
+    data.groups.forEach((group, index) => {
+      const section = document.createElement('section');
+      const heading = document.createElement('h3'); heading.textContent = `Квартира ${index + 1}`; section.append(heading);
+      group.items.forEach(item => {
+        const article = document.createElement('article');
+        const lines = [item.source, item.address,
+          `Комнат: ${item.rooms ?? '—'} · ${item.area} м² · Этаж: ${item.floor ?? '—'}/${item.floors ?? '—'}`,
+          item.price == null ? 'Цена неизвестна' : `${Number(item.price).toLocaleString('ru-RU')} ₽`];
+        lines.forEach(line => { const p = document.createElement('p'); p.textContent = line; article.append(p); });
+        section.append(article);
+      });
+      container.append(section);
+    });
+    const warnings = document.getElementById('merge-warnings'); warnings.replaceChildren();
+    data.warnings.forEach(text => { const li = document.createElement('li'); li.textContent = text; warnings.append(li); });
+    document.getElementById('merge-ack-label').hidden = !data.warnings.length;
+  }
+  document.addEventListener('click', async event => {
+    const button = event.target.closest('[data-merge-group]');
+    if (!button || busy) return;
+    if (!selected) { selected = {id:button.dataset.mergeGroup, label:button.dataset.mergeLabel}; render(); return; }
+    if (selected.id === button.dataset.mergeGroup) return;
+    trigger = button; second = button.dataset.mergeGroup; preview = null; ack.checked = false;
+    error.textContent = 'Загрузка сравнения…'; showComparison({groups:[],warnings:[]}); enableConfirm();
+    dialog.showModal();
+    const ticket = ++generation;
+    try {
+      const data = await request('/api/apartments/merge-preview', {left:selected.id, right:second});
+      if (ticket !== generation || !dialog.open) return;
+      preview = data; error.textContent = ''; showComparison(data); enableConfirm();
+    } catch (e) { if (ticket === generation && dialog.open) error.textContent = e.message; }
+  });
+  document.getElementById('merge-cancel').onclick = () => { selected = null; generation++; render(); };
+  document.getElementById('merge-close').onclick = () => { if (!busy) dialog.close(); };
+  dialog.addEventListener('cancel', e => { if (busy) e.preventDefault(); });
+  dialog.addEventListener('close', () => { generation++; trigger?.focus(); });
+  ack.onchange = enableConfirm;
+  confirm.onclick = async () => {
+    if (confirm.disabled) return;
+    busy = true; enableConfirm(); error.textContent = '';
+    document.getElementById('merge-close').disabled = true;
+    try {
+      await request('/api/apartments/merge', {left:selected.id, right:second, fingerprint:preview.fingerprint, acknowledge:ack.checked});
+      selected = null; render(); location.reload();
+    } catch (e) { error.textContent = e.message; preview = null; }
+    finally { busy = false; enableConfirm(); document.getElementById('merge-close').disabled = false; }
+  };
+  new MutationObserver(render).observe(document.getElementById('listings-body'), {childList:true});
+  render();
+})();
+</script>
