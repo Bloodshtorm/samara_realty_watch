@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     avito_daily_pages: int = Field(default=60, ge=1, le=200)
     avito_page_delay_seconds: int = Field(default=60, ge=30)
     avito_batch_pages: int = Field(default=10, ge=1, le=20)
+    ai_recommendations_enabled: bool = False
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "qwen3:14b"
+    ai_recommendation_limit: int = Field(default=10, ge=1, le=50)
+    ai_prompt_version: str = "listing-ai-v1"
 
 
 SourceName = Literal["yandex_realty", "domclick", "cian", "avito", "mirkvartir", "n1", "etagi"]

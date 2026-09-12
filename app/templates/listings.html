@@ -1060,6 +1060,11 @@
         <div id="result-summary">Найдено: {{ total }}{% if total > limit %}, показаны первые {{ limit }}{% endif %}</div>
         <div>Период видимости: {{ filters.seen_days }} дн.</div>
       </div>
+      {% if ai_enabled and filters.view != 'hidden' %}
+      <form method="post" action="/ai/recommendations/run?{{ request.url.query }}" class="summary">
+        <button type="submit">Проанализировать видимые варианты</button>
+      </form>
+      {% endif %}
       <nav class="views" aria-label="Разделы">
         <a class="view-tab" href="/duplicates">Проверка дублей</a>
         <a class="view-tab{% if filters.view == 'active' %} active{% endif %}" href="{{ view_url(request, 'active') }}">

@@ -282,6 +282,38 @@
       </div>
     </section>
 
+    <h2>AI-разбор</h2>
+    <section class="panel">
+      {% if ai_review %}
+        <dl>
+          <dt>Вердикт</dt><dd>{{ ai_review.verdict or "-" }}</dd>
+          <dt>AI score</dt><dd>{{ ai_review.ai_score if ai_review.ai_score is not none else "-" }}/100</dd>
+          <dt>Модель</dt><dd>{{ ai_review.model_name }}</dd>
+          <dt>Дата анализа</dt><dd>{{ ai_review.updated_at|dt }}</dd>
+        </dl>
+        {% if ai_review.summary %}<p>{{ ai_review.summary }}</p>{% endif %}
+        {% if ai_review.pros %}
+          <h3>Плюсы</h3>
+          <ul>{% for item in ai_review.pros %}<li>{{ item }}</li>{% endfor %}</ul>
+        {% endif %}
+        {% if ai_review.cons %}
+          <h3>Минусы</h3>
+          <ul>{% for item in ai_review.cons %}<li>{{ item }}</li>{% endfor %}</ul>
+        {% endif %}
+        {% if ai_review.risks %}
+          <h3>Риски</h3>
+          <ul class="warning">{% for item in ai_review.risks %}<li>{{ item }}</li>{% endfor %}</ul>
+        {% endif %}
+      {% else %}
+        <p class="muted">AI-разбор ещё не запускался.</p>
+      {% endif %}
+      {% if ai_enabled %}
+        <form method="post" action="/listings/{{ listing.id }}/ai-review?force=true">
+          <button type="submit">{{ "Пересчитать AI-разбор" if ai_review else "Запустить AI-разбор" }}</button>
+        </form>
+      {% endif %}
+    </section>
+
     <h2>Изменения цены</h2>
     <section class="panel">
       {% if price_timeline %}

@@ -19,6 +19,13 @@ x-app: &app
     HTML_DUMPS_DIR: /app/data/debug/html
     COLLECT_INTERVAL_SECONDS: "10800"
     APP_SESSION_DAYS: "30"
+    AI_RECOMMENDATIONS_ENABLED: "${AI_RECOMMENDATIONS_ENABLED:-false}"
+    OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+    OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen3:14b}"
+    AI_RECOMMENDATION_LIMIT: "${AI_RECOMMENDATION_LIMIT:-10}"
+    AI_PROMPT_VERSION: "${AI_PROMPT_VERSION:-listing-ai-v1}"
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   volumes:
     - ./data:/app/data
     - ./config:/app/config:ro

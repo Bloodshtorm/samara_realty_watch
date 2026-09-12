@@ -241,6 +241,49 @@ class ListingObservation(Base):
     listing: Mapped[Listing] = relationship(back_populates="observations")
 
 
+class ListingAIReview(Base):
+    __tablename__ = "listing_ai_reviews"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "context_id",
+            "listing_id",
+            "model_name",
+            "prompt_version",
+            "input_hash",
+            name="uq_listing_ai_review_input",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("search_contexts.id", ondelete="CASCADE"), index=True
+    )
+    listing_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("listings.id", ondelete="CASCADE"), index=True
+    )
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("apartment_groups.id", ondelete="SET NULL"), index=True
+    )
+    model_name: Mapped[str] = mapped_column(String(120), index=True)
+    prompt_version: Mapped[str] = mapped_column(String(80), index=True)
+    input_hash: Mapped[str] = mapped_column(String(64), index=True)
+    ai_score: Mapped[int | None] = mapped_column(Integer)
+    verdict: Mapped[str | None] = mapped_column(String(50))
+    pros: Mapped[list[str] | None] = mapped_column(JSON)
+    cons: Mapped[list[str] | None] = mapped_column(JSON)
+    risks: Mapped[list[str] | None] = mapped_column(JSON)
+    summary: Mapped[str | None] = mapped_column(Text)
+    raw_response: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class PriceHistory(Base):
     __tablename__ = "price_history"
 

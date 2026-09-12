@@ -7,7 +7,7 @@ import re
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, TypedDict
@@ -33,6 +33,7 @@ from app.models import (
     Base,
     CollectorRun,
     Listing,
+    ListingAIReview,
     ListingLink,
     ListingObservation,
     ListingUserState,
@@ -43,6 +44,12 @@ from app.models import (
     UserSession,
 )
 from app.reporting_format import format_dt, format_m2, format_percent, format_rub
+from services.ai_recommendations import (
+    OllamaClient,
+    latest_reviews_for_listings,
+    review_listing_with_cache,
+    review_listings,
+)
 from services.analytics import (
     ListingHistoryStats,
     ListingRecommendation,
@@ -132,6 +139,7 @@ class TableRowsContext(TypedDict):
     listings: list[Listing]
     stats: dict[UUID, ListingHistoryStats]
     recommendations: dict[UUID, ListingRecommendation]
+    ai_reviews: dict[UUID, ListingAIReview]
     user_states: dict[UUID, ListingUserState]
     apartments: dict[UUID, dict]
 
@@ -598,6 +606,7 @@ async def listings_page(
             "view_url": _view_url,
             "context_url": _context_url,
             "current_user": user,
+            "ai_enabled": Settings().ai_recommendations_enabled,
         },
     )
 
@@ -732,6 +741,7 @@ async def listing_detail(
         .scalars()
         .all()
     )
+    ai_context = await _listing_context(session, listing, user)
 
     return templates.TemplateResponse(
         request,
@@ -744,9 +754,92 @@ async def listing_detail(
             "price_changes": price_changes,
             "price_timeline": _price_timeline(list(reversed(observations))),
             "user_state": await _user_state(session, listing.id, user),
+            "ai_review": (
+                await latest_reviews_for_listings(
+                    session, [listing.id], user=user, context=ai_context
+                )
+            ).get(listing.id),
+            "ai_enabled": Settings().ai_recommendations_enabled,
             "current_user": user,
         },
     )
+
+
+@app.post("/ai/recommendations/run")
+async def ai_recommendations_run(
+    request: Request,
+    force: bool = Query(False),
+    filters: ListingFilters = FILTERS_DEP,
+    session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
+) -> RedirectResponse:
+    settings = Settings()
+    if not settings.ai_recommendations_enabled:
+        raise HTTPException(status_code=409, detail="AI recommendations are disabled")
+    contexts = await _contexts(session, user)
+    if not contexts:
+        return RedirectResponse("/", status_code=303)
+    selected_context = _selected_context(contexts, filters.context)
+    visible_filters = replace(filters, context=selected_context.slug)
+    candidates: list[Listing] = []
+    if visible_filters.view != "hidden":
+        stmt = _filtered_listings_query(visible_filters, selected_context, user)
+        candidates = unique_apartments(
+            [
+                item
+                for item in (await session.scalars(stmt)).all()
+                if in_context(item, selected_context, visible_filters.location)
+            ]
+        )[: settings.ai_recommendation_limit]
+    await review_listings(
+        session,
+        listings=candidates,
+        context=selected_context,
+        user=user,
+        model_name=settings.ollama_model,
+        prompt_version=settings.ai_prompt_version,
+        client=OllamaClient(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+            prompt_version=settings.ai_prompt_version,
+        ),
+        force=force,
+    )
+    await session.commit()
+    return RedirectResponse(_local_return(request), status_code=303)
+
+
+@app.post("/listings/{listing_id}/ai-review")
+async def listing_ai_review_run(
+    request: Request,
+    listing_id: UUID,
+    force: bool = Query(True),
+    session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
+) -> RedirectResponse:
+    settings = Settings()
+    if not settings.ai_recommendations_enabled:
+        raise HTTPException(status_code=409, detail="AI recommendations are disabled")
+    listing = await session.get(Listing, listing_id)
+    if listing is None or not await _listing_visible_to_user(session, listing, user):
+        raise HTTPException(status_code=404, detail="Listing not found")
+    context = await _listing_context(session, listing, user)
+    await review_listing_with_cache(
+        session,
+        listing=listing,
+        context=context,
+        user=user,
+        model_name=settings.ollama_model,
+        prompt_version=settings.ai_prompt_version,
+        client=OllamaClient(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+            prompt_version=settings.ai_prompt_version,
+        ),
+        force=force,
+    )
+    await session.commit()
+    return RedirectResponse(_local_return(request), status_code=303)
 
 
 @app.get("/contexts/new", response_class=HTMLResponse)
@@ -1051,6 +1144,11 @@ async def _table_rows_context(
         "listings": listings,
         "stats": {item.id: candidate_stats[item.id] for item in listings},
         "recommendations": {item.id: candidate_recommendations[item.id] for item in listings},
+        "ai_reviews": await latest_reviews_for_listings(
+            session, [item.id for item in listings], user=user, context=context
+        )
+        if user
+        else {},
         "user_states": await _user_states(session, [item.id for item in listings], user),
         "apartments": await _apartment_summaries(session, listings),
     }
@@ -1460,6 +1558,24 @@ async def _listing_visible_to_user(session: AsyncSession, listing: Listing, user
             )
         )
     )
+
+
+async def _listing_context(
+    session: AsyncSession, listing: Listing, user: User | None = None
+) -> SearchContext:
+    stmt = (
+        select(SearchContext)
+        .join(Search, Search.context_id == SearchContext.id)
+        .join(ListingObservation, ListingObservation.search_id == Search.id)
+        .where(ListingObservation.listing_id == listing.id)
+        .order_by(SearchContext.created_at, SearchContext.name)
+    )
+    if user is not None and user.role != "admin":
+        stmt = stmt.where(SearchContext.owner_user_id == user.id)
+    context = (await session.scalars(stmt)).first()
+    if context is None:
+        raise HTTPException(status_code=404, detail="Listing context not found")
+    return context
 
 
 async def _recent_market_listings(

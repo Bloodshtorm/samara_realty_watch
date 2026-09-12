@@ -1,6 +1,7 @@
 {% for item in listings %}
   {% set item_stats = stats[item.id] %}
   {% set recommendation = recommendations[item.id] %}
+  {% set ai_review = ai_reviews.get(item.id) if ai_reviews is defined else none %}
   {% set user_state = user_states.get(item.id) %}
   {% set apartment = apartments.get(item.id) %}
   {% set delta_class = "down" if (item_stats.total_change_rub or 0) < 0 else "up" %}
@@ -46,6 +47,10 @@
             <li>{{ warning }}</li>
           {% endfor %}
         </ul>
+      {% endif %}
+      {% if ai_review %}
+        <div class="muted">AI: {{ ai_review.verdict or "maybe" }}{% if ai_review.ai_score is not none %} · {{ ai_review.ai_score }}/100{% endif %}</div>
+        {% if ai_review.summary %}<div>{{ ai_review.summary }}</div>{% endif %}
       {% endif %}
     </td>
     <td class="num stats-col" data-label="Статистика">
@@ -119,6 +124,9 @@
             <div><span>Площадь</span><strong>{{ item.area_total_m2|m2 }}</strong></div>
             <div><span>Этаж</span><strong>{{ floor_label|trim }}</strong></div>
             <div><span>Рекомендация</span><strong>{{ recommendation.score }}</strong></div>
+            {% if ai_review %}
+            <div><span>AI</span><strong>{{ ai_review.ai_score or "-" }}</strong></div>
+            {% endif %}
           </section>
           <dl class="listing-card-location">
             <dt>Район</dt>
@@ -139,6 +147,12 @@
             <div>мин {{ item_stats.min_price_rub|rub }} · макс {{ item_stats.max_price_rub|rub }}</div>
             <div class="{{ delta_class }}">{{ item_stats.total_change_rub|rub }} · {{ item_stats.total_change_percent|percent }}</div>
           </section>
+          {% if ai_review %}
+          <section class="listing-card-stats" aria-label="AI-рекомендация">
+            <div>AI: {{ ai_review.verdict or "maybe" }} · {{ ai_review.model_name }}</div>
+            <div>{{ ai_review.summary }}</div>
+          </section>
+          {% endif %}
           <footer class="listing-card-actions">
             <a class="button" href="{{ item.url }}" target="_blank" rel="noreferrer">Источник</a>
             <a class="button secondary" href="/listings/{{ item.id }}">Страница</a>
