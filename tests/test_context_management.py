@@ -36,7 +36,7 @@ from services.ai_recommendations import (
     review_listing_with_cache,
 )
 from services.auth import SESSION_COOKIE_NAME, create_user_session, hash_password
-from services.context_management import context_deletion_plan, delete_context_data
+from services.context_management import collector_guard, context_deletion_plan, delete_context_data
 from services.search_contexts import upsert_context
 
 
@@ -258,3 +258,12 @@ def test_context_migration_from_existing_sqlite(tmp_path):
         ).one()
         assert tuple(result) == (30_000_000, 50.5)
     engine.dispose()
+
+
+async def test_live_collector_lock_blocks_deletion(factory, tmp_path):
+    fcntl = pytest.importorskip("fcntl")
+    with (tmp_path / "collector.lock").open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        async with factory() as session:
+            with pytest.raises(ValueError, match="идёт сбор"), collector_guard(session):
+                pytest.fail("Acquired an occupied collector lock")

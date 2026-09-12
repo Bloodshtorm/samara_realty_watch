@@ -73,6 +73,7 @@ from services.auth import (
 from services.avito_policy import AvitoPolicy
 from services.context_management import (
     backup_before_context_delete,
+    collector_guard,
     context_deletion_plan,
     delete_context_data,
 )
@@ -1136,16 +1137,17 @@ async def delete_context(
     if origin and origin != str(request.base_url).rstrip("/"):
         raise HTTPException(403, "Недопустимый источник запроса")
     try:
-        await session.execute(
-            update(SearchContext)
-            .where(SearchContext.id == context.id)
-            .values(enabled=SearchContext.enabled)
-        )
-        await backup_before_context_delete(session)
-        await delete_context_data(session, context)
+        with collector_guard(session) as collector_locked:
+            await session.execute(
+                update(SearchContext)
+                .where(SearchContext.id == context.id)
+                .values(enabled=SearchContext.enabled)
+            )
+            await backup_before_context_delete(session)
+            await delete_context_data(session, context, collector_locked=collector_locked)
+            await session.commit()
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
-    await session.commit()
     return RedirectResponse("/", status_code=303)
 
 

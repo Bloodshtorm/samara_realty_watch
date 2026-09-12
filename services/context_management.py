@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
@@ -75,7 +78,9 @@ async def context_deletion_plan(session: AsyncSession, context: SearchContext) -
     }
 
 
-async def delete_context_data(session: AsyncSession, context: SearchContext) -> None:
+async def delete_context_data(
+    session: AsyncSession, context: SearchContext, *, collector_locked: bool = False
+) -> None:
     # Serialize with collector start and AI saves, including when SQLite FKs are disabled.
     await session.execute(
         update(SearchContext)
@@ -95,7 +100,7 @@ async def delete_context_data(session: AsyncSession, context: SearchContext) -> 
         .where(CollectorRun.search_id.in_(plan["searches"]), CollectorRun.status == "started")
         .limit(1)
     )
-    if running:
+    if running and not collector_locked:
         raise ValueError("Сейчас идёт сбор по контексту. Дождитесь его завершения.")
     ids = plan["listings"]
     groups = list(
@@ -157,3 +162,24 @@ def _backup_file(database: str) -> Path:
     backup = directory / f"before-context-delete-{uuid4().hex}.sqlite3.gz"
     backup_database(path, backup)
     return backup
+
+
+@contextmanager
+def collector_guard(session: AsyncSession) -> Iterator[bool]:
+    """Use the same LAN flock as scheduler; stale run rows do not imply a live process."""
+    database = session.get_bind().engine.url.database
+    if sys.platform == "win32" or not database or database == ":memory:":
+        yield False
+        return
+    import fcntl
+
+    lock_path = Path(database).resolve().parent / "collector.lock"
+    with lock_path.open("a+b") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise ValueError("Сейчас идёт сбор. Повторите удаление после его завершения.") from exc
+        try:
+            yield True
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
