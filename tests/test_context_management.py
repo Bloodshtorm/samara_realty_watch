@@ -28,7 +28,12 @@ from app.models import (
     SearchContext,
     User,
 )
-from app.web import app
+from app.web import (
+    ListingFilters,
+    _filtered_listings_query,
+    _validate_context_form,
+    app,
+)
 from services.ai_recommendations import (
     AIContextChanged,
     compact_listing_payload,
@@ -38,6 +43,58 @@ from services.ai_recommendations import (
 from services.auth import SESSION_COOKIE_NAME, create_user_session, hash_password
 from services.context_management import collector_guard, context_deletion_plan, delete_context_data
 from services.search_contexts import upsert_context
+
+
+async def test_minimum_building_floors_filters_and_persists(factory, override_db):
+    async with factory() as session:
+        user, context, _, _, low, high = await seed(session)
+        low.floors_total = 3
+        high.floors_total = 12
+        _, token = await create_user_session(session, user, days=1)
+        context_id = context.id
+        await session.flush()
+        filters = ListingFilters(context="mine", floors_total_min=4)
+        assert filters.floors_total_min == 4
+        assert list(await session.scalars(_filtered_listings_query(filters, context, user))) == [
+            high
+        ]
+        low.floors_total = None
+        await session.flush()
+        assert list(await session.scalars(_filtered_listings_query(filters, context, user))) == [
+            high
+        ]
+        await session.commit()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        client.cookies.set(SESSION_COOKIE_NAME, token)
+        response = await client.post(
+            f"/contexts/{context_id}/edit",
+            data={"name": "Mine", "floors_total_min": "14"},
+        )
+        assert response.status_code == 303
+        page = await client.get(f"/contexts/{context_id}/edit")
+        field = BeautifulSoup(page.text, "html.parser").select_one('[name="floors_total_min"]')
+        assert field["value"] == "14"
+    async with factory() as session:
+        context = await session.get(SearchContext, context_id)
+        assert context.floors_total_min == 14
+        assert not list(
+            await session.scalars(
+                _filtered_listings_query(
+                    ListingFilters(context="mine", floors_total_min=1), context
+                )
+            )
+        )
+
+
+def test_building_floors_rejects_inverted_context_range():
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException):
+        _validate_context_form(
+            {"name": ["Mine"], "floors_total_min": ["10"], "floors_total_max": ["3"]}
+        )
 
 
 async def seed(session):

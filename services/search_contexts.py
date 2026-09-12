@@ -16,6 +16,7 @@ CONTEXT_FIELDS = (
     "area_max",
     "floor_min",
     "floor_max",
+    "floors_total_min",
     "floors_total_max",
     "district",
 )

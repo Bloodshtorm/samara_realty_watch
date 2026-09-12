@@ -53,6 +53,7 @@ class SearchContext(Base):
     area_max: Mapped[float | None] = mapped_column(Float)
     floor_min: Mapped[int | None] = mapped_column(Integer)
     floor_max: Mapped[int | None] = mapped_column(Integer)
+    floors_total_min: Mapped[int | None] = mapped_column(Integer)
     floors_total_max: Mapped[int | None] = mapped_column(Integer)
     district: Mapped[str | None] = mapped_column(String(200))
     ai_preferences: Mapped[str | None] = mapped_column(Text)

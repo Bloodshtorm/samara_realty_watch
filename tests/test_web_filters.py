@@ -54,6 +54,7 @@ def test_parse_filters_parses_numeric_values() -> None:
         floor_min=None,
         floor_max=None,
         floors_total_max=None,
+        floors_total_min="4",
         district=None,
         source=None,
         changed_days=None,
@@ -62,6 +63,7 @@ def test_parse_filters_parses_numeric_values() -> None:
     )
 
     assert filters.price_min == 5_000_000
+    assert filters.floors_total_min == 4
     assert filters.area_min == 65.5
     assert filters.seen_days == 30
     assert filters.context == "land_samara_50km"

@@ -129,6 +129,7 @@ class ListingFilters:
     area_max: float | None = None
     floor_min: int | None = None
     floor_max: int | None = None
+    floors_total_min: int | None = None
     floors_total_max: int | None = None
     district: str | None = None
     source: str | None = None
@@ -205,6 +206,7 @@ def parse_filters(
     area_max: str | None = Query(default=None),
     floor_min: str | None = Query(default=None),
     floor_max: str | None = Query(default=None),
+    floors_total_min: str | None = None,
     floors_total_max: str | None = Query(default=None),
     district: str | None = Query(default=None),
     source: str | None = Query(default=None),
@@ -236,6 +238,7 @@ def parse_filters(
         area_max=_optional_float("area_max", area_max, minimum=0),
         floor_min=_optional_int("floor_min", floor_min, minimum=0),
         floor_max=_optional_int("floor_max", floor_max, minimum=0),
+        floors_total_min=_optional_int("floors_total_min", floors_total_min, minimum=0),
         floors_total_max=_optional_int("floors_total_max", floors_total_max, minimum=0),
         district=district_value,
         source=source_value,
@@ -1301,6 +1304,8 @@ def _filtered_listings_query(
         conditions.append(Listing.floor >= floor_min)
     if (floor_max := _optional_rule_int(rules, "floor_max")) is not None:
         conditions.append(Listing.floor <= floor_max)
+    if (floors_total_min := _optional_rule_int(rules, "floors_total_min")) is not None:
+        conditions.append(Listing.floors_total >= floors_total_min)
     if (floors_total_max := _optional_rule_int(rules, "floors_total_max")) is not None:
         conditions.append(Listing.floors_total <= floors_total_max)
     if district := _optional_rule_text(rules, "district"):
@@ -1339,6 +1344,8 @@ def _filtered_listings_query(
         conditions.append(Listing.floor >= filters.floor_min)
     if filters.floor_max is not None:
         conditions.append(Listing.floor <= filters.floor_max)
+    if filters.floors_total_min is not None:
+        conditions.append(Listing.floors_total >= filters.floors_total_min)
     if filters.floors_total_max is not None:
         conditions.append(Listing.floors_total <= filters.floors_total_max)
     if filters.district:
@@ -1702,6 +1709,7 @@ _CONTEXT_RULE_FIELDS = (
     "area_max",
     "floor_min",
     "floor_max",
+    "floors_total_min",
     "floors_total_max",
     "district",
     "ai_preferences",
@@ -1732,6 +1740,7 @@ def _validate_context_form(form: dict[str, list[str]]) -> None:
         ("price_min", "price_max"),
         ("area_min", "area_max"),
         ("floor_min", "floor_max"),
+        ("floors_total_min", "floors_total_max"),
     ):
         if lower in numeric and upper in numeric and numeric[lower] > numeric[upper]:
             raise HTTPException(422, "Значение «от» не может быть больше значения «до»")

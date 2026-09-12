@@ -145,6 +145,7 @@ def compact_listing_payload(listing: Listing, context: SearchContext) -> dict[st
                     "area_max",
                     "floor_min",
                     "floor_max",
+                    "floors_total_min",
                     "floors_total_max",
                     "district",
                 }
