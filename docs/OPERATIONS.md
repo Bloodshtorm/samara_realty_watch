@@ -16,6 +16,11 @@ Do not run them against an unknown database or stamp past this failure without s
 - Deploy branch: task-specific; deploy the current feature branch to LAN for validation, then merge/push to `main` only after the user accepts the result.
 - LAN server SSH host: `bs@192.168.0.246`
 - LAN server alias: `lan-dev`
+- Away-from-home SSH entrypoint (user-provided): `ssh nat-dev`. Use this saved alias
+  when outside the LAN; the deploy directory and `compose.lan.yml` are unchanged.
+- Away-from-home web UI (user-provided): `http://bloodshtorm.ru:65501/`.
+  This HTTP endpoint does not provide transport encryption; do not expose CDP/noVNC
+  or treat it as a hardened public deployment.
 - Deploy path on LAN server: `/home/bs/soft/github/samara_realty_watch`
 - Web UI: `http://192.168.0.246:8000/`
 - noVNC URL: `http://192.168.0.246:6080/vnc.html`
@@ -146,6 +151,21 @@ coordinates remain accessible under `Местоположение: Не подт
 ## Normal Deploy
 
 ### Context Settings And Deletion
+
+Revision `0011_apartment_experience` adds `discovery_pending` to searches and the
+`ai_review_jobs` / `location_evidence` tables. It queues full discovery for automatic
+searches whose recorded runs have only visited one page. Back up and verify the
+existing 0010 SQLite database, stop web/scheduler after the collector lock is free,
+migrate, then rebuild/restart only web and scheduler. Source policies are unchanged.
+
+AI requests return immediately; web background tasks serialize model access and
+persist status/results. Closing the tab does not cancel the current job. This web
+deployment uses one process: on restart interrupted jobs are marked failed and can
+be retried, not silently resumed. Do not scale web workers without a shared worker
+queue. Group AI payloads contain only user-accessible source listings. Nearby stops
+use HTTPS Overpass around-query data cached for seven days (errors 30 minutes),
+not map-tile labels. Distances are straight-line estimates, not walking routes.
+OpenStreetMap coverage is incomplete and inferred property coordinates are labelled.
 
 Revision `0010_collection_requests` adds durable `collection_requested_at` and
 `auto_collect` to searches. Existing active UI-created contexts are enrolled;

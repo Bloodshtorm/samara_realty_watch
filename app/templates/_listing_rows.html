@@ -29,9 +29,9 @@
     <td class="listing-copy-col" data-label="Заголовок / описание">
       {% if item.group_id %}
       <a class="row-link-button" href="{{ apartment.url }}">{{ item.rooms }}-комн. квартира · {{ apartment.area }}</a>
-      {% else %}<button class="row-link-button card-open" type="button" data-card-listing="{{ item.id }}">
+      {% else %}<a class="row-link-button" href="/listings/{{ item.id }}">
         {{ display_title }}
-      </button>{% endif %}
+      </a>{% endif %}
     </td>
     <td class="location-col" data-label="Район / адрес">
       <div>{{ item.district or "Район не найден" }}</div>
@@ -55,7 +55,6 @@
       {% endif %}
       {% if ai_review %}
         <div class="muted">AI: {{ {'watch': 'Стоит посмотреть', 'maybe': 'Нужно уточнить', 'skip': 'Не в приоритете'}.get(ai_review.verdict, 'Нужно уточнить') }}{% if ai_review.ai_score is not none %} · {{ ai_review.ai_score }}/100{% endif %}</div>
-        {% if ai_review.summary %}<div>{{ ai_review.summary }}</div>{% endif %}
         <a href="/listings/{{ item.id }}#ai-review">Полный AI-разбор</a>
       {% endif %}
     </td>
@@ -72,7 +71,7 @@
     <td class="action-col" data-label="Действия">
       <div class="row-actions">
         {% if item.group_id %}<a class="button secondary small" href="{{ apartment.url }}">Карточка</a>
-        {% else %}<button class="button secondary small card-open" type="button" data-card-listing="{{ item.id }}">Карточка</button>{% endif %}
+        {% else %}<a class="button secondary small" href="/listings/{{ item.id }}">Карточка</a>{% endif %}
         <a
           class="button secondary small"
           href="{{ item.url }}"

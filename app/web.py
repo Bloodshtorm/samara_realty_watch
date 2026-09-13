@@ -15,7 +15,7 @@ from typing import Literal, TypedDict
 from urllib.parse import parse_qs, urlencode
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
@@ -29,6 +29,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from app.config import Settings
 from app.db import create_engine, create_session_factory
 from app.models import (
+    AIReviewJob,
     ApartmentGroup,
     ApartmentUserState,
     Base,
@@ -46,6 +47,7 @@ from app.models import (
     UserSession,
 )
 from app.reporting_format import format_dt, format_m2, format_percent, format_rub
+from services.ai_jobs import run_ai_job
 from services.ai_recommendations import (
     AIContextChanged,
     OllamaClient,
@@ -182,6 +184,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with session.begin():
             await sync_contexts_from_config(session, settings.searches_config_path)
             await bootstrap_admin(session, settings)
+            await session.execute(
+                update(AIReviewJob)
+                .where(AIReviewJob.status.in_(["queued", "running"]))
+                .values(status="failed", error="Сервис был перезапущен. Повторите анализ.")
+            )
     try:
         yield
     finally:
@@ -845,12 +852,43 @@ async def listing_detail(
         .all()
     )
     ai_context = await _listing_context(session, listing, user, request.query_params.get("context"))
+    members = [listing]
+    if listing.group_id:
+        members = list(
+            await session.scalars(
+                select(Listing)
+                .where(Listing.group_id == listing.group_id, _visible_listing_condition(user))
+                .order_by(Listing.source, Listing.id)
+            )
+        )
+    histories: dict[UUID, list[PriceHistory]] = {m.id: [] for m in members}
+    for change in await session.scalars(
+        select(PriceHistory)
+        .where(PriceHistory.listing_id.in_(histories))
+        .order_by(PriceHistory.observed_at.desc())
+    ):
+        histories[change.listing_id].append(change)
+    job = await session.scalar(
+        select(AIReviewJob)
+        .where(
+            AIReviewJob.user_id == user.id,
+            AIReviewJob.context_id == ai_context.id,
+            AIReviewJob.listing_id.in_([m.id for m in members]),
+        )
+        .order_by(AIReviewJob.created_at.desc())
+        .limit(1)
+    )
 
     return templates.TemplateResponse(
         request,
-        "listing_detail.html",
+        "property_detail.html",
         {
             "listing": listing,
+            "members": members,
+            "histories": histories,
+            "ai_context": ai_context,
+            "ai_job": job,
+            "apartment": (await _apartment_summaries(session, [listing], user))[listing.id],
             "listing_stats": listing_stats,
             "recommendation": recommendation,
             "observations": observations,
@@ -919,6 +957,7 @@ async def ai_recommendations_run(
 async def ai_recommendation_review(
     request: Request,
     payload: AIReviewPayload,
+    background_tasks: BackgroundTasks,
     filters: ListingFilters = FILTERS_DEP,
     session: AsyncSession = SESSION_DEP,
     user: User = USER_DEP,
@@ -946,6 +985,10 @@ async def ai_recommendation_review(
     )
     if not candidates:
         raise HTTPException(status_code=404, detail="Listing not found")
+    if request.query_params.get("background") == "1":
+        return await start_property_ai_job(
+            request, candidates[0].id, background_tasks, session, user
+        )
     review, created = await review_listing_with_cache(
         session,
         listing=candidates[0],
@@ -1005,33 +1048,103 @@ def _select_ai_candidates(candidates: list[Listing], selected_keys: set[str]) ->
 async def listing_ai_review_run(
     request: Request,
     listing_id: UUID,
+    background_tasks: BackgroundTasks,
     force: bool = Query(True),
     session: AsyncSession = SESSION_DEP,
     user: User = USER_DEP,
 ) -> RedirectResponse:
-    settings = Settings()
-    if not settings.ai_recommendations_enabled:
-        raise HTTPException(status_code=409, detail="AI recommendations are disabled")
+    await start_property_ai_job(request, listing_id, background_tasks, session, user)
+    return RedirectResponse(
+        f"/listings/{listing_id}?" + urlencode(dict(request.query_params)) + "#ai-review",
+        status_code=303,
+    )
+
+
+@app.post("/api/listings/{listing_id}/ai-jobs", status_code=202)
+async def start_property_ai_job(
+    request: Request,
+    listing_id: UUID,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
+) -> dict:
+    if not Settings().ai_recommendations_enabled:
+        raise HTTPException(409, "AI сейчас выключен")
     listing = await session.get(Listing, listing_id)
     if listing is None or not await _listing_visible_to_user(session, listing, user):
-        raise HTTPException(status_code=404, detail="Listing not found")
-    context = await _listing_context(session, listing, user, request.query_params.get("context"))
-    await review_listing_with_cache(
-        session,
-        listing=listing,
-        context=context,
-        user=user,
-        model_name=settings.ollama_model,
-        prompt_version=settings.ai_prompt_version,
-        client=OllamaClient(
-            base_url=settings.ollama_base_url,
-            model=settings.ollama_model,
-            prompt_version=settings.ai_prompt_version,
-        ),
-        force=force,
+        raise HTTPException(404, "Квартира не найдена")
+    state = await _user_state(session, listing.id, user)
+    group_state = (
+        await _apartment_user_state(session, listing.group_id, user) if listing.group_id else None
     )
+    if (state and state.is_hidden) or (group_state and group_state.is_hidden):
+        raise HTTPException(404, "Квартира скрыта")
+    context = await _listing_context(session, listing, user, request.query_params.get("context"))
+    await session.execute(
+        update(User).where(User.id == user.id).values(context_limit=User.context_limit)
+    )
+    ids = [listing.id]
+    if listing.group_id:
+        ids = list(
+            await session.scalars(
+                select(Listing.id).where(
+                    Listing.group_id == listing.group_id, _visible_listing_condition(user)
+                )
+            )
+        )
+    active = list(
+        await session.scalars(
+            select(AIReviewJob).where(
+                AIReviewJob.user_id == user.id, AIReviewJob.status.in_(["queued", "running"])
+            )
+        )
+    )
+    existing = next((j for j in active if j.context_id == context.id and j.listing_id in ids), None)
+    if existing:
+        return {"job_id": str(existing.id)}
+    if len(active) >= 4:
+        raise HTTPException(409, "Уже выполняются четыре анализа. Дождитесь завершения.")
+    job = AIReviewJob(
+        user_id=user.id, context_id=context.id, listing_id=listing.id, status="queued"
+    )
+    session.add(job)
     await session.commit()
-    return RedirectResponse(_local_return(request), status_code=303)
+    background_tasks.add_task(
+        run_ai_job, job.id, session.get_bind().engine.url.render_as_string(hide_password=False)
+    )
+    return {"job_id": str(job.id)}
+
+
+@app.get("/api/ai-jobs/{job_id}")
+async def property_ai_job_status(
+    request: Request,
+    job_id: UUID,
+    session: AsyncSession = SESSION_DEP,
+    user: User = USER_DEP,
+    filters: ListingFilters = FILTERS_DEP,
+) -> dict:
+    job = await session.get(AIReviewJob, job_id)
+    if job is None or job.user_id != user.id:
+        raise HTTPException(404, "Анализ не найден")
+    listing = await session.get(Listing, job.listing_id)
+    if listing is None or not await _listing_visible_to_user(session, listing, user):
+        raise HTTPException(404, "Квартира недоступна")
+    result: dict[str, object] = {"status": job.status, "error": job.error}
+    if job.status == "completed":
+        context = await session.get(SearchContext, job.context_id)
+        if context is None:
+            raise HTTPException(404, "Контекст удалён")
+        review = (
+            await latest_reviews_for_listings(session, [listing.id], user=user, context=context)
+        ).get(listing.id)
+        result["html"] = templates.get_template("_ai_review_content.html").render(ai_review=review)
+        row_context = await _table_rows_context(session, [listing], filters, context, user)
+        result["rows_html"] = templates.get_template("_listing_rows.html").render(
+            request=request, filters=filters, current_user=user, **row_context
+        )
+        if review:
+            result.update(ai_score=review.ai_score, verdict=review.verdict)
+    return result
 
 
 @app.get("/contexts/new", response_class=HTMLResponse)
@@ -2284,27 +2397,7 @@ async def apartment_detail(
     )
     if group is None or not members:
         raise HTTPException(404, "Apartment not found")
-    histories: dict[UUID, list[PriceHistory]] = {item.id: [] for item in members}
-    for change in (
-        await session.scalars(
-            select(PriceHistory)
-            .where(PriceHistory.listing_id.in_(histories))
-            .order_by(PriceHistory.observed_at.desc())
-        )
-    ).all():
-        histories[change.listing_id].append(change)
-    return templates.TemplateResponse(
-        request,
-        "apartment_detail.html",
-        {
-            "group": group,
-            "members": members,
-            "histories": histories,
-            "summary": (await _apartment_summaries(session, [members[0]], user))[members[0].id],
-            "user_state": await _apartment_user_state(session, group_id, user),
-            "current_user": user,
-        },
-    )
+    return await listing_detail(request, members[0].id, session, user)
 
 
 @app.post("/apartments/{group_id}/split")

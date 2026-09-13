@@ -156,6 +156,15 @@ Commercial-readiness gaps and release gates are tracked in
 same account ownership boundary as individual listings; regression coverage is in
 `tests/test_product_isolation.py`.
 
+Apartment and source URLs share `property_detail.html`: source descriptions and
+prices remain separate evidence inside one apartment view. `services/ai_jobs.py`
+runs bounded background analyses; `ai_review_jobs` exposes owner-scoped progress.
+`services/location_evidence.py` caches OpenStreetMap stop evidence with attribution;
+missing data is not proof that no stop exists. Initial validated collection now
+sets `discovery_pending` to continue full discovery on the next queue tick rather
+than waiting twelve hours after one page. Touch drawing uses native pointer input
+and Leaflet coordinates; list/map selection remains in the existing URL contract.
+
 From the project root, using a real interpreter in the existing venv:
 
 ```text

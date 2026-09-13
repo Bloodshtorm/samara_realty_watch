@@ -1,0 +1,46 @@
+<section id="ai-review" class="ai-section">
+  <div class="section-heading"><h2>AI-разбор квартиры</h2>
+  {% if ai_enabled %}<button id="ai-start" type="button">{{ 'Пересчитать' if ai_review else 'Проанализировать квартиру' }}</button>{% endif %}</div>
+  <p id="ai-status" role="status" aria-live="polite"></p>
+  <div id="ai-content">{% include '_ai_review_content.html' %}</div>
+</section>
+<script>
+(() => {
+  const button = document.getElementById('ai-start');
+  const status = document.getElementById('ai-status');
+  let jobId = {{ (ai_job.id|string if ai_job else none)|tojson }};
+  let busy = false;
+  let started = Date.now();
+  async function poll() {
+    try {
+      const response = await fetch('/api/ai-jobs/' + jobId, {cache:'no-store'});
+      if (!response.ok || response.redirected) throw new Error('Статус недоступен. Обновите страницу после восстановления соединения.');
+      const data = await response.json();
+      if (data.status === 'completed') {
+        document.getElementById('ai-content').innerHTML = data.html;
+        status.textContent = 'Анализ завершён'; busy = false;
+      } else if (data.status === 'failed') {
+        status.textContent = data.error; busy = false;
+      } else {
+        status.textContent = (data.status === 'queued' ? 'В очереди к модели' : 'Анализируем объявления всех источников') + ' · ' + Math.round((Date.now()-started)/1000) + ' сек.';
+        setTimeout(poll, 2000);
+      }
+    } catch (error) { status.textContent = error.message; busy = false; }
+    if (button) button.disabled = busy;
+  }
+  if (button) button.addEventListener('click', async () => {
+    if (busy) return;
+    busy = true; button.disabled = true; started = Date.now();
+    status.textContent = 'Ставим квартиру в очередь на анализ…';
+    try {
+      const response = await fetch('/api/listings/{{ listing.id }}/ai-jobs?context={{ ai_context.slug|urlencode }}', {method:'POST'});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Не удалось запустить анализ');
+      jobId = data.job_id; await poll();
+    } catch (error) { status.textContent = error.message; busy = false; button.disabled = false; }
+  });
+  {% if ai_job and ai_job.status in ['queued','running'] %}
+  busy = true; if (button) button.disabled = true; void poll();
+  {% elif ai_job and ai_job.status == 'failed' %}status.textContent = {{ ai_job.error|tojson }};{% endif %}
+})();
+</script>

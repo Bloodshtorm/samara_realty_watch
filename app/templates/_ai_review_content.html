@@ -1,0 +1,19 @@
+{% if ai_review %}
+<div class="ai-verdict"><strong>{{ {'watch':'Стоит посмотреть','maybe':'Нужно уточнить','skip':'Не в приоритете'}.get(ai_review.verdict,'Нужно уточнить') }}</strong> · {{ ai_review.ai_score }}/100</div>
+<p>{{ ai_review.summary }}</p>
+<div class="ai-columns">
+  <section><h3>Плюсы</h3><ul>{% for text in ai_review.pros or [] %}<li>{{ text }}</li>{% endfor %}</ul></section>
+  <section><h3>Минусы</h3><ul>{% for text in ai_review.cons or [] %}<li>{{ text }}</li>{% endfor %}</ul></section>
+  <section><h3>Что проверить</h3><ul>{% for text in ai_review.risks or [] %}<li>{{ text }}</li>{% endfor %}</ul></section>
+</div>
+{% set evidence = (ai_review.raw_response or {}).get('nearby_transport') %}
+{% if evidence %}<details><summary>Остановки рядом · данные карты</summary>
+{% if evidence.status == 'ok' %}
+<p>{{ evidence.caveat }}</p>
+{% if evidence.coordinates_inferred %}<p>Координаты квартиры приблизительные.</p>{% endif %}
+<ul>{% for stop in evidence.stops %}<li><a href="{{ stop.url }}" target="_blank" rel="noreferrer">{{ stop.name }}</a> · {{ stop.distance_m_straight_line }} м по прямой</li>{% else %}<li>В радиусе 1 км записи не найдены. Это не доказывает отсутствие остановок.</li>{% endfor %}</ul>
+<p class="muted">© OpenStreetMap contributors · {{ evidence.checked_at }}</p>
+{% else %}<p>{{ evidence.reason }}</p>{% endif %}
+</details>{% endif %}
+<p class="muted">{{ ai_review.model_name }} · {{ ai_review.updated_at|dt }} · Источников в разборе: {{ (ai_review.raw_response or {}).get('sources_count', 1) }}</p>
+{% else %}<p class="muted">AI-разбор ещё не выполнен.</p>{% endif %}

@@ -244,14 +244,19 @@ async def test_worker_consumes_db_only_requests_once(
         runs_before = len(list(await session.scalars(select(CollectorRun))))
     await runner.collect_once(settings, requested_only=True)
     async with factory() as session:
-        assert len(list(await session.scalars(select(CollectorRun)))) == runs_before
-    assert calls == ([] if outcome in {"paused", "browser_failed"} else [(search_id, 1)])
+        assert len(list(await session.scalars(select(CollectorRun)))) == runs_before + int(
+            automatic and outcome == "success"
+        )
+    expected = [] if outcome in {"paused", "browser_failed"} else [(search_id, 1)]
+    if automatic and outcome == "success":
+        expected.append((search_id, 20))
+    assert calls == expected
     if automatic and outcome == "success":
         await runner.collect_once(settings, due_only=True)
-        assert calls == [(search_id, 1)]
+        assert calls == [(search_id, 1), (search_id, 20)]
         async with factory() as session:
             search = await session.get(Search, search_id)
             search.last_started_at = datetime.now(UTC) - timedelta(hours=24)
             await session.commit()
         await runner.collect_once(settings, due_only=True)
-        assert calls == [(search_id, 1), (search_id, 20)]
+        assert calls == [(search_id, 1), (search_id, 20), (search_id, 20)]

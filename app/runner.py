@@ -78,7 +78,13 @@ async def collect_once(
             pending = await session.scalar(
                 select(Search.id)
                 .join(SearchContext)
-                .where(Search.collection_requested_at.is_not(None), SearchContext.enabled.is_(True))
+                .where(
+                    or_(
+                        Search.collection_requested_at.is_not(None),
+                        Search.discovery_pending.is_(True),
+                    ),
+                    SearchContext.enabled.is_(True),
+                )
                 .limit(1)
             )
         if pending is None:
@@ -109,7 +115,11 @@ async def collect_once(
             )
             searches.extend(s for s in queued if s.id not in configured_ids)
             if requested_only:
-                searches = [s for s in searches if s.collection_requested_at is not None]
+                searches = [
+                    s
+                    for s in searches
+                    if s.collection_requested_at is not None or s.discovery_pending
+                ]
 
     @asynccontextmanager
     async def browser():
@@ -122,10 +132,14 @@ async def collect_once(
                     update(Search)
                     .where(
                         Search.id.in_([s.id for s in searches]),
-                        Search.collection_requested_at.is_not(None),
+                        or_(
+                            Search.collection_requested_at.is_not(None),
+                            Search.discovery_pending.is_(True),
+                        ),
                     )
                     .values(
                         collection_requested_at=None,
+                        discovery_pending=False,
                         last_status="failed",
                         last_error="Не удалось подключить сборщик. Проверьте историю сборов.",
                     )
@@ -171,6 +185,7 @@ async def collect_once(
             if (
                 due_only
                 and not manual
+                and not search.discovery_pending
                 and not pending_probe
                 and not search_is_due(search, datetime.now(UTC))
             ):
@@ -196,13 +211,14 @@ async def collect_once(
                     avito.check()
                 except AvitoPaused as exc:
                     log.info("source_paused", source="avito", reason=str(exc))
-                    if manual or validation:
+                    if manual or validation or search.discovery_pending:
                         async with session_factory() as paused_session, paused_session.begin():
                             await paused_session.execute(
                                 update(Search)
                                 .where(Search.id == search.id)
                                 .values(
                                     collection_requested_at=None,
+                                    discovery_pending=False,
                                     last_status="paused",
                                     last_error=str(exc),
                                 )
@@ -316,8 +332,10 @@ async def collect_once(
                         run_in_db.listings_updated = updated
                         run_in_db.price_changes_found = price_changes
                         db_search.last_status = run_in_db.status
+                        db_search.discovery_pending = False
                         if db_search.auto_collect and parsed:
                             db_search.enabled = True
+                            db_search.discovery_pending = bool(validation)
                         if manual:
                             db_search.collection_requested_at = None
                         db_search.last_error = None
@@ -363,6 +381,7 @@ async def collect_once(
                         )
                         run_in_db.debug_html_path = getattr(collector, "last_debug_html_path", None)
                         db_search.last_status = "failed"
+                        db_search.discovery_pending = False
                         if manual:
                             db_search.collection_requested_at = None
                         db_search.last_error = str(exc)

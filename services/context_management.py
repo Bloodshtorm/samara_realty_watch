@@ -11,6 +11,7 @@ from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    AIReviewJob,
     ApartmentGroup,
     ApartmentUserState,
     CollectorRun,
@@ -106,6 +107,11 @@ async def delete_context_data(
     groups = list(
         await session.scalars(
             select(Listing.group_id).where(Listing.id.in_(ids), Listing.group_id.is_not(None))
+        )
+    )
+    await session.execute(
+        delete(AIReviewJob).where(
+            or_(AIReviewJob.context_id == context.id, AIReviewJob.listing_id.in_(ids))
         )
     )
     await session.execute(

@@ -1,0 +1,32 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ listing.address_normalized or listing.title }} · Квартира</title>
+{% include '_apartment_style.html' %}
+<style>
+main { max-width: 1180px; } h1 { overflow-wrap: anywhere; font-size: 26px; }
+.section-heading { display:flex; gap:16px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+.ai-section { border-top:2px solid #0f766e; margin-top:24px; padding:16px 0; }
+.ai-section p, .ai-section li { line-height:1.65; overflow-wrap:anywhere; }
+.ai-columns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; }
+.ai-columns ul { padding-left:20px; } .ai-verdict { font-size:18px; }
+.source-item { border-top:1px solid #d9dee7; padding:16px 0; }
+.source-item summary { font-weight:600; } .source-item p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.property-facts { display:flex; flex-wrap:wrap; gap:24px; padding:16px 0; }
+.property-facts strong { display:block; font-size:22px; }
+@media(max-width:700px) { .ai-columns {grid-template-columns:minmax(0,1fr); gap:0;} main {padding:16px;} h1 {font-size:22px;} .property-facts {gap:12px;} }
+</style></head><body><main>
+<nav><a href="/">К списку квартир</a><a href="#ai-review">AI-разбор</a><a href="#sources">Источники · {{ members|length }}</a></nav>
+<header><h1>{{ listing.address_normalized or listing.address_raw or listing.title }}</h1><p>{{ listing.district or '' }}</p>
+<div class="property-facts"><div>Цена<strong>{{ apartment.price }}</strong></div><div>Площадь<strong>{{ apartment.area }}</strong></div><div>Этаж<strong>{{ listing.floor or '-' }} / {{ listing.floors_total or '-' }}</strong></div></div>
+<div class="actions"><form method="post" action="/listings/{{ listing.id }}/state?action={{ 'unfavorite' if user_state and user_state.is_favorite else 'favorite' }}"><button>{{ 'Убрать из избранного' if user_state and user_state.is_favorite else 'В избранное' }}</button></form>
+<a class="command" href="{{ listing.url }}" target="_blank" rel="noreferrer">Открыть площадку</a></div></header>
+{% include '_ai_section.html' %}
+<section id="sources"><h2>Объявления источников</h2>
+{% for item in members %}<article class="source-item"><div class="section-heading"><h3>{{ item.source }} · {{ item.price_rub|rub }}</h3><a href="{{ item.url }}" target="_blank" rel="noreferrer">На площадке</a></div>
+<p>{{ item.area_total_m2|m2 }} · Этаж {{ item.floor or '-' }}/{{ item.floors_total or '-' }} · {{ 'Активно' if item.is_active else 'Неактивно' }} · {{ item.last_seen_at|dt }}</p>
+<details><summary>Описание и адрес</summary><p>{{ item.address_raw }}</p><p>{{ item.description or 'Описание отсутствует' }}</p></details>
+<details><summary>История цены · {{ item.source }}</summary>{% for change in histories[item.id] %}<p>{{ change.observed_at|dt }} · {{ change.old_price_rub|rub }} → {{ change.new_price_rub|rub }}</p>{% else %}<p>Изменений пока нет.</p>{% endfor %}</details>
+{% if item.group_id and current_user.role == 'admin' and members|length > 1 %}<form method="post" action="/apartments/{{ item.group_id }}/split?listing_id={{ item.id }}"><button title="Отделить ошибочно объединённое объявление">Отделить источник</button></form>{% endif %}
+</article>{% endfor %}</section>
+<details><summary>Оценка по параметрам · {{ recommendation.score }}/100</summary><ul>{% for reason in recommendation.reasons %}<li>{{ reason }}</li>{% endfor %}</ul></details>
+{% if listing.group_id and current_user.role == 'admin' %}<p><a href="/duplicates?group_id={{ listing.group_id }}">Проверить объединение источников</a></p>{% endif %}
+</main>{% include '_search_navigation.html' %}</body></html>
